@@ -1,0 +1,22 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.DotSettings.user
+
+# Node / Frontend
+node_modules/
+dist/
+.vite/
+
+# Environment
+.env
+.env.local
+appsettings.Development.local.json
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
