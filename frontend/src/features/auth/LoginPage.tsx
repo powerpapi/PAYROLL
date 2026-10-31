@@ -1,6 +1,7 @@
 import React, { useState } from "react"
 import { BanknoteIcon } from "lucide-react"
 
+import { ModeToggle } from "@/components/mode-toggle"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -43,7 +44,11 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
   }
 
   return (
-    <div className="flex min-h-svh flex-col items-center justify-center bg-muted/40 p-6 md:p-10">
+    <div className="relative flex min-h-svh flex-col items-center justify-center bg-muted/40 p-6 md:p-10">
+      <div className="absolute right-6 top-6">
+        <ModeToggle />
+      </div>
+
       <div className="w-full max-w-sm">
         <Card className="shadow-md">
           <CardHeader className="space-y-2 text-center">

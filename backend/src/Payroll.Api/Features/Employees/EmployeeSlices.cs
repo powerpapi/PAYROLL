@@ -18,6 +18,8 @@ public static class EmployeeSlices
         string EmploymentStatus,
         string JobTitle,
         Guid DepartmentId,
+        string? ShiftStartTime,
+        string? ShiftEndTime,
         string PayFrequency,
         decimal BasicMonthlySalary,
         string? TinNumber,
@@ -105,6 +107,8 @@ public static class EmployeeSlices
                     e.EmploymentStatus,
                     e.DepartmentId,
                     DepartmentName = e.Department != null ? e.Department.Name : "",
+                    ShiftStartTime = e.ShiftStartTime.ToString("HH:mm"),
+                    ShiftEndTime = e.ShiftEndTime.ToString("HH:mm"),
                     e.PayFrequency,
                     e.BasicMonthlySalary,
                     e.DailyRate,
@@ -141,6 +145,8 @@ public static class EmployeeSlices
                     e.EmploymentStatus,
                     e.DepartmentId,
                     DepartmentName = e.Department != null ? e.Department.Name : "",
+                    ShiftStartTime = e.ShiftStartTime.ToString("HH:mm"),
+                    ShiftEndTime = e.ShiftEndTime.ToString("HH:mm"),
                     e.PayFrequency,
                     e.BasicMonthlySalary,
                     e.DailyRate,
@@ -172,9 +178,11 @@ public static class EmployeeSlices
             if (exists)
                 return Results.Conflict(new { message = "Employee with the same code or email already exists." });
 
-            // Standard 261 working days/year (~21.75 days/month) daily & hourly rate derivation
             var dailyRate = Math.Round(request.BasicMonthlySalary * 12m / 261m, 4);
             var hourlyRate = Math.Round(dailyRate / 8m, 4);
+
+            var shiftStart = TimeOnly.TryParse(request.ShiftStartTime, out var ss) ? ss : new TimeOnly(9, 0);
+            var shiftEnd = TimeOnly.TryParse(request.ShiftEndTime, out var se) ? se : new TimeOnly(18, 0);
 
             var employee = new Employee
             {
@@ -187,6 +195,8 @@ public static class EmployeeSlices
                 EmploymentStatus = request.EmploymentStatus,
                 JobTitle = request.JobTitle.Trim(),
                 DepartmentId = request.DepartmentId,
+                ShiftStartTime = shiftStart,
+                ShiftEndTime = shiftEnd,
                 PayFrequency = request.PayFrequency,
                 BasicMonthlySalary = request.BasicMonthlySalary,
                 DailyRate = dailyRate,
@@ -228,6 +238,9 @@ public static class EmployeeSlices
             var dailyRate = Math.Round(request.BasicMonthlySalary * 12m / 261m, 4);
             var hourlyRate = Math.Round(dailyRate / 8m, 4);
 
+            var shiftStart = TimeOnly.TryParse(request.ShiftStartTime, out var ss) ? ss : employee.ShiftStartTime;
+            var shiftEnd = TimeOnly.TryParse(request.ShiftEndTime, out var se) ? se : employee.ShiftEndTime;
+
             employee.EmployeeCode = request.EmployeeCode.Trim();
             employee.FirstName = request.FirstName.Trim();
             employee.LastName = request.LastName.Trim();
@@ -237,6 +250,8 @@ public static class EmployeeSlices
             employee.EmploymentStatus = request.EmploymentStatus;
             employee.JobTitle = request.JobTitle.Trim();
             employee.DepartmentId = request.DepartmentId;
+            employee.ShiftStartTime = shiftStart;
+            employee.ShiftEndTime = shiftEnd;
             employee.PayFrequency = request.PayFrequency;
             employee.BasicMonthlySalary = request.BasicMonthlySalary;
             employee.DailyRate = dailyRate;
@@ -251,6 +266,130 @@ public static class EmployeeSlices
 
             await db.SaveChangesAsync();
             return Results.Ok(new { employee.Id, employee.EmployeeCode });
+        }).RequireAuthorization(RbacPolicies.HrOrAdmin);
+
+        // Bulk generate up to 1,000 realistic employees
+        group.MapPost("/seed-bulk", async (int? targetCount, AppDbContext db) =>
+        {
+            var desiredTotal = targetCount ?? 1000;
+            var existingCodes = (await db.Employees
+                .AsNoTracking()
+                .Select(e => e.EmployeeCode)
+                .ToListAsync())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var existingEmails = (await db.Employees
+                .AsNoTracking()
+                .Select(e => e.Email)
+                .ToListAsync())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var departments = await db.Departments.ToListAsync();
+            if (departments.Count == 0)
+            {
+                departments.AddRange(
+                    new Department { Code = "ENG", Name = "Engineering" },
+                    new Department { Code = "HR", Name = "Human Resources" },
+                    new Department { Code = "FIN", Name = "Finance & Accounting" },
+                    new Department { Code = "OPS", Name = "Operations" },
+                    new Department { Code = "SLS", Name = "Sales & Marketing" }
+                );
+                db.Departments.AddRange(departments);
+                await db.SaveChangesAsync();
+            }
+
+            string[] firstNames =
+            [
+                "Juan", "Maria", "Jose", "Ana", "Carlo", "Bea", "miguel", "Sofia", "Gabriel", "Camille",
+                "Rafael", "Patricia", "Daniel", "Angela", "Paolo", "Katrina", "Mark", "Jasmine", "Christian", "Clarisse",
+                "Adrian", "Bianca", "Joshua", "Denise", "Kevin", "Alyssa", "patrick", "Hannah", "Jerome", "Mikaela"
+            ];
+
+            string[] lastNames =
+            [
+                "Dela Cruz", "Santos", "Reyes", "Garcia", "Mendoza", "Torres", "Flores", "Rivera", "Gomez", "Bautista",
+                "Villanueva", "Ramos", "Castro", "Aquino", "Navarro", "Salazar", "Mercado", "Pascual", "Domingo", "Soriano",
+                "Lim", "Tan", "Chua", "Sy", "Ong", "De Guzman", "Morales", "Tolentino", "Valdez", "Aguilar"
+            ];
+
+            string[] jobTitles =
+            [
+                "Software Engineer", "Senior Software Engineer", "QA Analyst", "DevOps Engineer", "Product Manager",
+                "HR Specialist", "Payroll Analyst", "Accountant", "Financial Analyst", "Operations Coordinator",
+                "Customer Success Associate", "Sales Executive", "Data Analyst", "Systems Administrator", "UI/UX Designer"
+            ];
+
+            string[] employmentStatuses = ["Regular", "Regular", "Regular", "Probationary", "Contractual"];
+            string[] banks = ["BDO", "BPI", "Metrobank", "UnionBank", "LandBank"];
+
+            var toAdd = new List<Employee>();
+            var rng = new Random(20261031);
+
+            for (int i = 1; i <= desiredTotal; i++)
+            {
+                var code = $"EMP-{i:D4}";
+                if (existingCodes.Contains(code))
+                    continue;
+
+                var fn = firstNames[(i - 1) % firstNames.Length];
+                fn = char.ToUpper(fn[0]) + fn[1..];
+                var ln = lastNames[((i - 1) / firstNames.Length + i) % lastNames.Length];
+                var emailSlug = $"{fn.ToLowerInvariant().Replace(" ", "")}.{ln.ToLowerInvariant().Replace(" ", "")}.{i}@payroll.local";
+
+                if (existingEmails.Contains(emailSlug))
+                    continue;
+
+                var dept = departments[i % departments.Count];
+                var title = jobTitles[i % jobTitles.Length];
+                var status = employmentStatuses[i % employmentStatuses.Length];
+                var bank = banks[i % banks.Length];
+
+                // Monthly salary between 18,000 and 95,000 in 500-peso increments
+                var monthlySalary = 18000m + (rng.Next(0, 155) * 500m);
+                var dailyRate = Math.Round(monthlySalary * 12m / 261m, 4);
+                var hourlyRate = Math.Round(dailyRate / 8m, 4);
+
+                toAdd.Add(new Employee
+                {
+                    EmployeeCode = code,
+                    FirstName = fn,
+                    LastName = ln,
+                    Email = emailSlug,
+                    HireDate = new DateOnly(2020 + (i % 6), 1 + (i % 12), 1 + (i % 27)),
+                    EmploymentStatus = status,
+                    JobTitle = title,
+                    DepartmentId = dept.Id,
+                    ShiftStartTime = new TimeOnly(9, 0),
+                    ShiftEndTime = new TimeOnly(18, 0),
+                    PayFrequency = "SemiMonthly",
+                    BasicMonthlySalary = monthlySalary,
+                    DailyRate = dailyRate,
+                    HourlyRate = hourlyRate,
+                    TinNumber = $"{100 + (i % 899):D3}-{200 + (i % 799):D3}-{300 + (i % 699):D3}-000",
+                    SssNumber = $"34-{1000000 + i:D7}-{i % 9}",
+                    PhilHealthNumber = $"12-{200000000 + i:D9}-{i % 9}",
+                    PagIbigNumber = $"1210-{3000 + (i % 6999):D4}-{4000 + i:D4}",
+                    BankName = bank,
+                    BankAccountNumber = $"00{1000000000L + i}",
+                    IsActive = true
+                });
+
+                existingCodes.Add(code);
+                existingEmails.Add(emailSlug);
+            }
+
+            if (toAdd.Count > 0)
+            {
+                await db.Employees.AddRangeAsync(toAdd);
+                await db.SaveChangesAsync();
+            }
+
+            var totalNow = await db.Employees.CountAsync();
+            return Results.Ok(new
+            {
+                AddedCount = toAdd.Count,
+                TotalEmployees = totalNow
+            });
         }).RequireAuthorization(RbacPolicies.HrOrAdmin);
     }
 }

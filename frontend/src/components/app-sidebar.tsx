@@ -34,6 +34,8 @@ export type NavKey =
   | "employees"
   | "departments"
   | "users"
+  | "timekeeping"
+  | "payroll"
   | "contributions"
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
@@ -81,6 +83,18 @@ export function AppSidebar({
         ]
       : []),
     {
+      id: "timekeeping",
+      title: "Attendance, Leave & OT",
+      icon: CalendarClockIcon,
+      badge: "Phase 2",
+    },
+    {
+      id: "payroll",
+      title: "Payroll Engine",
+      icon: CalculatorIcon,
+      badge: "Phase 3",
+    },
+    {
       id: "contributions",
       title: "Gov't Contributions",
       icon: LandmarkIcon,
@@ -89,8 +103,6 @@ export function AppSidebar({
   ]
 
   const upcomingPhases = [
-    { title: "Attendance, Leave & OT", icon: CalendarClockIcon, phase: "Phase 2" },
-    { title: "Payroll Engine", icon: CalculatorIcon, phase: "Phase 3" },
     { title: "Approvals & Lock", icon: CheckCircle2Icon, phase: "Phase 5" },
     { title: "Payslips & Reports", icon: FileSpreadsheetIcon, phase: "Phase 6" },
     { title: "Loans & 13th-Month", icon: HandCoinsIcon, phase: "Phase 7" },

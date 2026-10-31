@@ -25,8 +25,8 @@ import { apiFetch } from "@/lib/api"
 
 const ROADMAP_PHASES = [
   { phase: "Phase 1", name: "Authentication, RBAC & Employee Management", status: "Active" },
-  { phase: "Phase 2", name: "Attendance, Leave & Overtime", status: "Planned" },
-  { phase: "Phase 3", name: "Payroll Calculation Engine", status: "Planned" },
+  { phase: "Phase 2", name: "Attendance, Leave & Overtime", status: "Active" },
+  { phase: "Phase 3", name: "Payroll Calculation Engine", status: "Active" },
   { phase: "Phase 4", name: "Dynamic Gov't Contributions & Tax", status: "Active" },
   { phase: "Phase 5", name: "Payroll Approval & Finalization", status: "Planned" },
   { phase: "Phase 6", name: "Payslips & Statutory Reports", status: "Planned" },

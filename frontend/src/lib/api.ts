@@ -8,6 +8,7 @@ export interface AuthUser {
   employeeId?: string | null;
   employeeName?: string | null;
   accessToken: string;
+  refreshToken?: string;
 }
 
 export function getStoredUser(): AuthUser | null {
@@ -41,10 +42,32 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(path, {
+  let response = await fetch(path, {
     ...options,
     headers,
   });
+
+  // Automatic Refresh Token rotation if access token expired
+  if (response.status === 401 && path !== '/api/auth/login' && path !== '/api/auth/refresh') {
+    const storedUser = getStoredUser();
+    if (storedUser?.refreshToken) {
+      const refreshRes = await fetch('/api/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: storedUser.refreshToken }),
+      });
+
+      if (refreshRes.ok) {
+        const refreshedUser = (await refreshRes.json()) as AuthUser;
+        setStoredUser(refreshedUser);
+        headers['Authorization'] = `Bearer ${refreshedUser.accessToken}`;
+        response = await fetch(path, {
+          ...options,
+          headers,
+        });
+      }
+    }
+  }
 
   if (!response.ok) {
     let errMessage = `Request failed (${response.status})`;
@@ -59,6 +82,10 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
       // ignore json parse error
     }
     throw new Error(errMessage);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
   }
 
   return response.json() as Promise<T>;

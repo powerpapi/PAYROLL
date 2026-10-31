@@ -17,21 +17,21 @@
 - [x] Employee profiles (personal info, job details, compensation structure, bank details, statutory IDs)
 - [x] Department, designation, and employment status management
 
-### Phase 2: Attendance, Leave, Overtime
-- [ ] Time tracking / attendance logs (clock-in/out, shift schedules, tardiness, undertime, absences)
-- [ ] Leave management (leave types, balances, accrual rules, leave requests & approval workflows)
-- [ ] Overtime requests, multipliers (regular OT, rest day OT, holiday OT), and approvals
+### Phase 2: Attendance, Leave, Overtime ✅
+- [x] Time tracking / attendance logs (clock-in/out, shift schedules, tardiness, undertime, absences)
+- [x] Leave management (leave types, balances, accrual rules, leave requests & approval workflows)
+- [x] Overtime requests, multipliers (regular OT, rest day OT, holiday OT), and approvals
 
-### Phase 3: Payroll Calculation Engine
-- [ ] Pay period configuration (semi-monthly, monthly, weekly)
-- [ ] Gross pay computation (basic pay, pro-rated salary, attendance deductions, overtime pay, holiday pay)
-- [ ] Allowances (taxable and non-taxable/de minimis) and recurring adjustments
+### Phase 3: Payroll Calculation Engine ✅
+- [x] Pay period configuration (semi-monthly, monthly, weekly)
+- [x] Gross pay computation (basic pay, pro-rated salary, attendance deductions, overtime pay, holiday pay)
+- [x] Allowances (taxable and non-taxable/de minimis) and recurring adjustments
 
-### Phase 4: Government Contributions and Tax
-- [ ] Default seeded statutory contributions (**SSS**, **PhilHealth**, **Pag-IBIG**)
-- [ ] Dynamic `ContributionTypes` & effective-dated schedules/brackets (allowing Admins to add new government contributions or update tables/rates dynamically via `FixedAmount`, `Percentage` with floor/ceiling, or `BracketTable`)
-- [ ] Employer vs. Employee share (plus EC / MPF) breakdown per contribution type
-- [ ] Dynamic, effective-dated graduated Withholding Tax tables
+### Phase 4: Government Contributions and Tax ✅
+- [x] Default seeded statutory contributions (**SSS**, **PhilHealth**, **Pag-IBIG**)
+- [x] Editable mathematical formula engine (`ContributionFormulaEvaluator`) & dynamic `ContributionTypes` / effective-dated schedules (allowing Admins to edit formulas like `clamp(salary, floor, ceiling) * (ee_rate / 100)`, edit bracket tables, or add new government contributions at runtime)
+- [x] Employer vs. Employee share (plus EC / MPF) breakdown per contribution type
+- [x] Dynamic, effective-dated graduated Withholding Tax tables
 
 ### Phase 5: Payroll Approval and Finalization
 - [ ] Payroll run draft generation & review interface

@@ -1,3 +1,4 @@
+import { ModeToggle } from "@/components/mode-toggle"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
@@ -20,11 +21,14 @@ export function SiteHeader({
           />
           <h1 className="text-base font-semibold">{title}</h1>
         </div>
-        {role && (
-          <Badge variant="secondary" className="text-xs font-medium">
-            {role}
-          </Badge>
-        )}
+        <div className="flex items-center gap-2">
+          {role && (
+            <Badge variant="secondary" className="text-xs font-medium">
+              {role}
+            </Badge>
+          )}
+          <ModeToggle />
+        </div>
       </div>
     </header>
   )

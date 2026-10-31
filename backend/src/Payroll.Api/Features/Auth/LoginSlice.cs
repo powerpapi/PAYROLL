@@ -1,16 +1,24 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Payroll.Api.Common.Auth;
 using Payroll.Api.Data;
-using Payroll.Api.Data.Entities;
 
 namespace Payroll.Api.Features.Auth;
 
 public static class LoginSlice
 {
     public record LoginRequest(string Email, string Password);
-    public record LoginResponse(Guid Id, string AccessToken, string Email, string Role, Guid? EmployeeId, string? EmployeeName);
+    public record RefreshTokenRequest(string RefreshToken);
+    public record LoginResponse(
+        Guid Id,
+        string AccessToken,
+        string RefreshToken,
+        string Email,
+        string Role,
+        Guid? EmployeeId,
+        string? EmployeeName);
     public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
     public class LoginValidator : AbstractValidator<LoginRequest>
@@ -29,6 +37,11 @@ public static class LoginSlice
             RuleFor(x => x.CurrentPassword).NotEmpty();
             RuleFor(x => x.NewPassword).NotEmpty().MinimumLength(6);
         }
+    }
+
+    private static string GenerateSecureRefreshToken()
+    {
+        return Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
     }
 
     public static void MapAuthEndpoints(this IEndpointRouteBuilder app)
@@ -53,9 +66,57 @@ public static class LoginSlice
                 return Results.Problem("Invalid email or password.", statusCode: StatusCodes.Status401Unauthorized);
 
             var token = jwt.GenerateToken(user);
+            var refreshToken = GenerateSecureRefreshToken();
+            user.RefreshToken = refreshToken;
+            user.RefreshTokenExpiryUtc = DateTime.UtcNow.AddDays(14);
+            await db.SaveChangesAsync();
+
             var empName = user.Employee is not null ? $"{user.Employee.FirstName} {user.Employee.LastName}" : null;
 
-            return Results.Ok(new LoginResponse(user.Id, token, user.Email, user.Role, user.EmployeeId, empName));
+            return Results.Ok(new LoginResponse(
+                user.Id,
+                token,
+                refreshToken,
+                user.Email,
+                user.Role,
+                user.EmployeeId,
+                empName));
+        });
+
+        group.MapPost("/refresh", async (
+            RefreshTokenRequest request,
+            AppDbContext db,
+            JwtTokenGenerator jwt) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.RefreshToken))
+                return Results.Unauthorized();
+
+            var user = await db.Users
+                .Include(u => u.Employee)
+                .FirstOrDefaultAsync(u =>
+                    u.RefreshToken == request.RefreshToken &&
+                    u.IsActive &&
+                    u.RefreshTokenExpiryUtc > DateTime.UtcNow);
+
+            if (user is null)
+                return Results.Unauthorized();
+
+            var newAccessToken = jwt.GenerateToken(user);
+            var newRefreshToken = GenerateSecureRefreshToken();
+            user.RefreshToken = newRefreshToken;
+            user.RefreshTokenExpiryUtc = DateTime.UtcNow.AddDays(14);
+            await db.SaveChangesAsync();
+
+            var empName = user.Employee is not null ? $"{user.Employee.FirstName} {user.Employee.LastName}" : null;
+
+            return Results.Ok(new LoginResponse(
+                user.Id,
+                newAccessToken,
+                newRefreshToken,
+                user.Email,
+                user.Role,
+                user.EmployeeId,
+                empName));
         });
 
         group.MapGet("/me", async (ClaimsPrincipal principal, AppDbContext db) =>

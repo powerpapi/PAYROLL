@@ -8,7 +8,9 @@ using Payroll.Api.Data;
 using Payroll.Api.Data.Seed;
 using Payroll.Api.Features.Auth;
 using Payroll.Api.Features.Employees;
+using Payroll.Api.Features.PayrollEngine;
 using Payroll.Api.Features.StatutoryAndTax;
+using Payroll.Api.Features.Timekeeping;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -70,14 +72,25 @@ app.UseAuthorization();
 app.MapGet("/api/health", () => Results.Ok(new { status = "Healthy", timestamp = DateTime.UtcNow }))
    .WithTags("System");
 
-// Map Vertical Slice Endpoints
+// Map Phase 1 Vertical Slice Endpoints
 app.MapAuthEndpoints();
 app.MapUserManagementEndpoints();
 app.MapDepartmentEndpoints();
 app.MapEmployeeEndpoints();
+
+// Map Phase 2 Vertical Slice Endpoints
+app.MapAttendanceEndpoints();
+app.MapLeaveEndpoints();
+app.MapOvertimeEndpoints();
+
+// Map Phase 3 Vertical Slice Endpoints
+app.MapAllowanceEndpoints();
+app.MapPayrollEngineEndpoints();
+
+// Map Phase 4 Vertical Slice Endpoints
 app.MapContributionEndpoints();
 
-// Optional Auto-EnsureCreated & Seed on Startup in Development if DB is reachable
+// Auto-EnsureCreated & Seed on Startup in Development if DB is reachable
 if (app.Environment.IsDevelopment())
 {
     using var scope = app.Services.CreateScope();

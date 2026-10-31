@@ -1,5 +1,12 @@
 import React, { useEffect, useState } from "react"
-import { PencilIcon, PlusIcon, SearchIcon } from "lucide-react"
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  PencilIcon,
+  PlusIcon,
+  SearchIcon,
+  SparklesIcon,
+} from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -57,6 +64,8 @@ export interface Employee {
   employmentStatus: string
   departmentId: string
   departmentName: string
+  shiftStartTime?: string
+  shiftEndTime?: string
   payFrequency: string
   basicMonthlySalary: number
   dailyRate: number
@@ -80,6 +89,8 @@ const emptyForm = {
   employmentStatus: "Regular",
   jobTitle: "",
   departmentId: "",
+  shiftStartTime: "09:00",
+  shiftEndTime: "18:00",
   payFrequency: "SemiMonthly",
   basicMonthlySalary: 30000,
   tinNumber: "",
@@ -91,13 +102,17 @@ const emptyForm = {
   isActive: true,
 }
 
+const PAGE_SIZE = 50
+
 export function EmployeesPage({ canEdit }: { canEdit: boolean }) {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [search, setSearch] = useState("")
   const [selectedDept, setSelectedDept] = useState("ALL")
   const [loading, setLoading] = useState(true)
+  const [seeding, setSeeding] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -120,6 +135,7 @@ export function EmployeesPage({ canEdit }: { canEdit: boolean }) {
       ])
       setEmployees(empData)
       setDepartments(deptData)
+      setPage(1)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -130,6 +146,21 @@ export function EmployeesPage({ canEdit }: { canEdit: boolean }) {
   useEffect(() => {
     loadData()
   }, [selectedDept])
+
+  const handleBulkSeed1000 = async () => {
+    setSeeding(true)
+    setError(null)
+    try {
+      await apiFetch("/api/employees/seed-bulk?targetCount=1000", {
+        method: "POST",
+      })
+      await loadData()
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSeeding(false)
+    }
+  }
 
   const openCreate = () => {
     setEditingId(null)
@@ -152,6 +183,8 @@ export function EmployeesPage({ canEdit }: { canEdit: boolean }) {
       employmentStatus: emp.employmentStatus,
       jobTitle: emp.jobTitle,
       departmentId: emp.departmentId,
+      shiftStartTime: emp.shiftStartTime || "09:00",
+      shiftEndTime: emp.shiftEndTime || "18:00",
       payFrequency: emp.payFrequency,
       basicMonthlySalary: emp.basicMonthlySalary,
       tinNumber: emp.tinNumber || "",
@@ -188,21 +221,44 @@ export function EmployeesPage({ canEdit }: { canEdit: boolean }) {
     }
   }
 
+  const totalPages = Math.max(1, Math.ceil(employees.length / PAGE_SIZE))
+  const pagedEmployees = employees.slice(
+    (page - 1) * PAGE_SIZE,
+    page * PAGE_SIZE
+  )
+
   return (
     <div className="flex flex-col gap-6 p-4 lg:p-6">
       <Card>
         <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <CardTitle>Employee Directory & Compensation</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle>Employee Directory & Compensation</CardTitle>
+              <Badge variant="secondary" className="tabular-nums">
+                {employees.length.toLocaleString()} Total
+              </Badge>
+            </div>
             <CardDescription>
-              Manage employee profiles, salary structures, bank accounts, and statutory IDs.
+              Manage employee profiles, shift schedules, salary structures, bank accounts, and statutory IDs.
             </CardDescription>
           </div>
           {canEdit && (
-            <Button onClick={openCreate}>
-              <PlusIcon className="mr-1.5 size-4" />
-              Add Employee
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {employees.length < 1000 && (
+                <Button
+                  variant="outline"
+                  disabled={seeding}
+                  onClick={handleBulkSeed1000}
+                >
+                  <SparklesIcon className="mr-1.5 size-4 text-primary" />
+                  {seeding ? "Generating 1,000..." : "Generate 1,000 Employees"}
+                </Button>
+              )}
+              <Button onClick={openCreate}>
+                <PlusIcon className="mr-1.5 size-4" />
+                Add Employee
+              </Button>
+            </div>
           )}
         </CardHeader>
 
@@ -253,6 +309,7 @@ export function EmployeesPage({ canEdit }: { canEdit: boolean }) {
                   <TableHead>Code</TableHead>
                   <TableHead>Employee</TableHead>
                   <TableHead>Department / Title</TableHead>
+                  <TableHead>Shift</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Basic Salary</TableHead>
                   <TableHead className="text-right">Daily / Hourly</TableHead>
@@ -262,18 +319,18 @@ export function EmployeesPage({ canEdit }: { canEdit: boolean }) {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                       Loading employees...
                     </TableCell>
                   </TableRow>
-                ) : employees.length === 0 ? (
+                ) : pagedEmployees.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                       No employees found.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  employees.map((emp) => (
+                  pagedEmployees.map((emp) => (
                     <TableRow key={emp.id}>
                       <TableCell className="font-mono text-xs font-semibold">
                         {emp.employeeCode}
@@ -287,6 +344,9 @@ export function EmployeesPage({ canEdit }: { canEdit: boolean }) {
                       <TableCell>
                         <div className="font-medium">{emp.jobTitle}</div>
                         <div className="text-xs text-muted-foreground">{emp.departmentName}</div>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">
+                        {emp.shiftStartTime || "09:00"}–{emp.shiftEndTime || "18:00"}
                       </TableCell>
                       <TableCell>
                         <Badge variant={emp.isActive ? "default" : "secondary"}>
@@ -317,6 +377,40 @@ export function EmployeesPage({ canEdit }: { canEdit: boolean }) {
               </TableBody>
             </Table>
           </div>
+
+          {/* Pagination Footer */}
+          {employees.length > PAGE_SIZE && (
+            <div className="flex items-center justify-between pt-2 text-xs text-muted-foreground">
+              <div>
+                Showing {(page - 1) * PAGE_SIZE + 1}–
+                {Math.min(page * PAGE_SIZE, employees.length)} of{" "}
+                {employees.length.toLocaleString()} employees
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeftIcon className="size-4" />
+                  Prev
+                </Button>
+                <span className="font-medium text-foreground">
+                  Page {page} of {totalPages}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Next
+                  <ChevronRightIcon className="size-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -434,7 +528,23 @@ export function EmployeesPage({ canEdit }: { canEdit: boolean }) {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 border-t pt-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 border-t pt-3 sm:grid-cols-4">
+              <div className="space-y-1.5">
+                <Label>Shift Start</Label>
+                <Input
+                  type="time"
+                  value={form.shiftStartTime}
+                  onChange={(e) => setForm({ ...form, shiftStartTime: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Shift End</Label>
+                <Input
+                  type="time"
+                  value={form.shiftEndTime}
+                  onChange={(e) => setForm({ ...form, shiftEndTime: e.target.value })}
+                />
+              </div>
               <div className="space-y-1.5">
                 <Label>Pay Frequency</Label>
                 <Select
