@@ -10,9 +10,22 @@ import { ContributionsPage } from "@/features/contributions/ContributionsPage"
 import { DashboardPage } from "@/features/dashboard/DashboardPage"
 import { DepartmentsPage } from "@/features/employees/DepartmentsPage"
 import { EmployeesPage } from "@/features/employees/EmployeesPage"
+import { LoansAndBenefitsPage } from "@/features/loans-benefits/LoansAndBenefitsPage"
+import { PayrollApprovalsPage } from "@/features/approvals/PayrollApprovalsPage"
 import { PayrollEnginePage } from "@/features/payroll/PayrollEnginePage"
+import { ReportsAndPayslipsPage } from "@/features/reports/ReportsAndPayslipsPage"
 import { TimekeepingPage } from "@/features/timekeeping/TimekeepingPage"
 import { AuthUser, getStoredUser, setStoredUser } from "@/lib/api"
+import { ShieldAlertIcon } from "lucide-react"
+import { Button } from "@/components/ui/button"
+
+const DEFAULT_ROLE_FEATURES: Record<string, string[]> = {
+  Admin: ["dashboard", "employees", "departments", "users", "timekeeping", "payroll", "contributions", "approvals", "reports", "loans-benefits"],
+  HR: ["dashboard", "employees", "departments", "users", "timekeeping", "reports", "loans-benefits"],
+  PayrollOfficer: ["dashboard", "employees", "payroll", "contributions", "approvals", "reports", "loans-benefits"],
+  Manager: ["dashboard", "employees", "timekeeping", "approvals", "reports"],
+  Employee: ["dashboard", "reports"],
+}
 
 const NAV_TITLES: Record<NavKey, string> = {
   dashboard: "Payroll Overview Dashboard",
@@ -22,6 +35,9 @@ const NAV_TITLES: Record<NavKey, string> = {
   timekeeping: "Attendance, Leave & Overtime",
   payroll: "Payroll Calculation Engine & Allowances",
   contributions: "Dynamic Government Contributions",
+  approvals: "Payroll Approval & Finalization Workflow",
+  reports: "Official Payslips & Financial Reports",
+  "loans-benefits": "Loans, Benefits & 13th-Month Pay",
 }
 
 export default function App() {
@@ -38,14 +54,33 @@ export default function App() {
     setUser(null)
   }
 
-  const canEditHr = user?.role === "Admin" || user?.role === "HR"
+  const allowedFeatures =
+    user?.features && user.features.length > 0
+      ? user.features
+      : user
+      ? DEFAULT_ROLE_FEATURES[user.role] || ["dashboard"]
+      : []
+
+  const hasAccess = (feature: NavKey) =>
+    user?.role === "Admin" || allowedFeatures.includes(feature)
+
+  const canEditHr =
+    user?.role === "Admin" || (hasAccess("employees") && (user?.role === "HR" || user?.role === "Admin"))
   const canManagePayroll =
     user?.role === "Admin" ||
-    user?.role === "HR" ||
-    user?.role === "PayrollOfficer"
+    (hasAccess("payroll") && (user?.role === "HR" || user?.role === "PayrollOfficer"))
   const canApproveTimekeeping =
-    user?.role === "Admin" || user?.role === "HR" || user?.role === "Manager"
+    user?.role === "Admin" ||
+    (hasAccess("timekeeping") && (user?.role === "HR" || user?.role === "Manager"))
   const isAdmin = user?.role === "Admin"
+
+  const handlePermissionsUpdated = (updatedFeatures: string[]) => {
+    if (user) {
+      const updatedUser = { ...user, features: updatedFeatures }
+      setStoredUser(updatedUser)
+      setUser(updatedUser)
+    }
+  }
 
   return (
     <ThemeProvider defaultTheme="dark" storageKey="payroll-ui-theme">
@@ -64,25 +99,54 @@ export default function App() {
             <SiteHeader title={NAV_TITLES[activeNav]} role={user.role} />
             <div className="flex flex-1 flex-col">
               <div className="@container/main flex flex-1 flex-col gap-2">
-                {activeNav === "dashboard" && (
-                  <DashboardPage onNavigate={setActiveNav} />
+                {!hasAccess(activeNav) ? (
+                  <div className="flex flex-col items-center justify-center p-12 text-center">
+                    <div className="rounded-full bg-destructive/10 p-3 text-destructive mb-3">
+                      <ShieldAlertIcon className="size-8" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-foreground">Access Restricted</h3>
+                    <p className="text-sm text-muted-foreground mt-1 max-w-md">
+                      Your current role ({user.role}) does not have permission to access the "{NAV_TITLES[activeNav]}" feature.
+                    </p>
+                    <Button className="mt-4" onClick={() => setActiveNav("dashboard")}>
+                      Return to Dashboard
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    {activeNav === "dashboard" && (
+                      <DashboardPage onNavigate={setActiveNav} />
+                    )}
+                    {activeNav === "employees" && (
+                      <EmployeesPage canEdit={canEditHr} />
+                    )}
+                    {activeNav === "departments" && (
+                      <DepartmentsPage canEdit={canEditHr} />
+                    )}
+                    {activeNav === "users" && (
+                      <UsersRbacPage
+                        isAdmin={isAdmin}
+                        onPermissionsUpdated={handlePermissionsUpdated}
+                      />
+                    )}
+                    {activeNav === "timekeeping" && (
+                      <TimekeepingPage canApprove={canApproveTimekeeping} />
+                    )}
+                    {activeNav === "payroll" && (
+                      <PayrollEnginePage canManage={canManagePayroll} />
+                    )}
+                    {activeNav === "contributions" && <ContributionsPage />}
+                    {activeNav === "approvals" && (
+                      <PayrollApprovalsPage userRole={user.role} />
+                    )}
+                    {activeNav === "reports" && (
+                      <ReportsAndPayslipsPage user={user} />
+                    )}
+                    {activeNav === "loans-benefits" && (
+                      <LoansAndBenefitsPage userRole={user.role} />
+                    )}
+                  </>
                 )}
-                {activeNav === "employees" && (
-                  <EmployeesPage canEdit={canEditHr} />
-                )}
-                {activeNav === "departments" && (
-                  <DepartmentsPage canEdit={canEditHr} />
-                )}
-                {activeNav === "users" && canEditHr && (
-                  <UsersRbacPage isAdmin={isAdmin} />
-                )}
-                {activeNav === "timekeeping" && (
-                  <TimekeepingPage canApprove={canApproveTimekeeping} />
-                )}
-                {activeNav === "payroll" && (
-                  <PayrollEnginePage canManage={canManagePayroll} />
-                )}
-                {activeNav === "contributions" && <ContributionsPage />}
               </div>
             </div>
           </SidebarInset>

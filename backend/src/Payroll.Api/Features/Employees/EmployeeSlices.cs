@@ -1,10 +1,66 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Payroll.Api.Common.Auth;
 using Payroll.Api.Data;
 using Payroll.Api.Data.Entities;
+using Payroll.Api.Data.Seed;
 
 namespace Payroll.Api.Features.Employees;
+
+public class EmployeeListItemDto
+{
+    public Guid Id { get; set; }
+    public string EmployeeCode { get; set; } = string.Empty;
+    public string FirstName { get; set; } = string.Empty;
+    public string LastName { get; set; } = string.Empty;
+    public string? MiddleName { get; set; }
+    public string Email { get; set; } = string.Empty;
+    public DateOnly HireDate { get; set; }
+    public string JobTitle { get; set; } = string.Empty;
+    public string EmploymentStatus { get; set; } = string.Empty;
+    public Guid DepartmentId { get; set; }
+    public string DepartmentName { get; set; } = string.Empty;
+    public string ShiftStartTime { get; set; } = string.Empty;
+    public string ShiftEndTime { get; set; } = string.Empty;
+    public string PayFrequency { get; set; } = string.Empty;
+    public decimal BasicMonthlySalary { get; set; }
+    public decimal DailyRate { get; set; }
+    public decimal HourlyRate { get; set; }
+    public int AllowanceCount { get; set; }
+    public decimal MonthlyAllowanceTotal { get; set; }
+    public int DeductionCount { get; set; }
+    public decimal MonthlyDeductionTotal { get; set; }
+    public string? TinNumber { get; set; }
+    public string? SssNumber { get; set; }
+    public string? PhilHealthNumber { get; set; }
+    public string? PagIbigNumber { get; set; }
+    public string? BankName { get; set; }
+    public string? BankAccountNumber { get; set; }
+    public bool IsActive { get; set; }
+}
+
+public static class EmployeeCacheHelper
+{
+    private const string VersionKey = "EmployeeCache_Version";
+
+    public static long GetVersion(IMemoryCache cache)
+    {
+        return cache.GetOrCreate(VersionKey, entry =>
+        {
+            entry.Priority = CacheItemPriority.NeverRemove;
+            return DateTime.UtcNow.Ticks;
+        });
+    }
+
+    public static void Invalidate(IMemoryCache cache)
+    {
+        cache.Set(VersionKey, DateTime.UtcNow.Ticks, new MemoryCacheEntryOptions
+        {
+            Priority = CacheItemPriority.NeverRemove
+        });
+    }
+}
 
 public static class EmployeeSlices
 {
@@ -63,12 +119,19 @@ public static class EmployeeSlices
             string? search,
             Guid? departmentId,
             string? status,
-            AppDbContext db) =>
+            AppDbContext db,
+            IMemoryCache cache) =>
         {
+            var cacheVersion = EmployeeCacheHelper.GetVersion(cache);
+            var cacheKey = $"employees_v{cacheVersion}_{search?.Trim().ToLowerInvariant()}_{departmentId}_{status?.Trim()}";
+
+            if (cache.TryGetValue(cacheKey, out List<EmployeeListItemDto>? cached) && cached is not null)
+            {
+                return Results.Ok(cached);
+            }
+
             var query = db.Employees
-                .AsNoTracking()
-                .Include(e => e.Department)
-                .AsQueryable();
+                .AsNoTracking();
 
             if (!string.IsNullOrWhiteSpace(search))
             {
@@ -94,34 +157,82 @@ public static class EmployeeSlices
             var employees = await query
                 .OrderBy(e => e.LastName)
                 .ThenBy(e => e.FirstName)
-                .Select(e => new
+                .Select(e => new EmployeeListItemDto
                 {
-                    e.Id,
-                    e.EmployeeCode,
-                    e.FirstName,
-                    e.LastName,
-                    e.MiddleName,
-                    e.Email,
-                    e.HireDate,
-                    e.JobTitle,
-                    e.EmploymentStatus,
-                    e.DepartmentId,
+                    Id = e.Id,
+                    EmployeeCode = e.EmployeeCode,
+                    FirstName = e.FirstName,
+                    LastName = e.LastName,
+                    MiddleName = e.MiddleName,
+                    Email = e.Email,
+                    HireDate = e.HireDate,
+                    JobTitle = e.JobTitle,
+                    EmploymentStatus = e.EmploymentStatus,
+                    DepartmentId = e.DepartmentId,
                     DepartmentName = e.Department != null ? e.Department.Name : "",
                     ShiftStartTime = e.ShiftStartTime.ToString("HH:mm"),
                     ShiftEndTime = e.ShiftEndTime.ToString("HH:mm"),
-                    e.PayFrequency,
-                    e.BasicMonthlySalary,
-                    e.DailyRate,
-                    e.HourlyRate,
-                    e.TinNumber,
-                    e.SssNumber,
-                    e.PhilHealthNumber,
-                    e.PagIbigNumber,
-                    e.BankName,
-                    e.BankAccountNumber,
-                    e.IsActive
+                    PayFrequency = e.PayFrequency,
+                    BasicMonthlySalary = e.BasicMonthlySalary,
+                    DailyRate = e.DailyRate,
+                    HourlyRate = e.HourlyRate,
+                    TinNumber = e.TinNumber,
+                    SssNumber = e.SssNumber,
+                    PhilHealthNumber = e.PhilHealthNumber,
+                    PagIbigNumber = e.PagIbigNumber,
+                    BankName = e.BankName,
+                    BankAccountNumber = e.BankAccountNumber,
+                    IsActive = e.IsActive
                 })
                 .ToListAsync();
+
+            if (employees.Count > 0)
+            {
+                var employeeIds = employees.Select(e => e.Id).ToList();
+
+                var activeAllowances = await db.EmployeeAllowances
+                    .AsNoTracking()
+                    .Where(a => a.IsActive && employeeIds.Contains(a.EmployeeId))
+                    .Select(a => new
+                    {
+                        a.EmployeeId,
+                        a.Category,
+                        a.Frequency,
+                        a.Amount
+                    })
+                    .ToListAsync();
+
+                var grouped = activeAllowances
+                    .GroupBy(a => a.EmployeeId)
+                    .ToDictionary(
+                        g => g.Key,
+                        g => new
+                        {
+                            AllowanceCount = g.Count(a => a.Category != "Deduction"),
+                            MonthlyAllowanceTotal = g.Where(a => a.Category != "Deduction")
+                                .Sum(a => a.Frequency == "PerCutoff" ? a.Amount * 2m : a.Amount),
+                            DeductionCount = g.Count(a => a.Category == "Deduction"),
+                            MonthlyDeductionTotal = g.Where(a => a.Category == "Deduction")
+                                .Sum(a => a.Frequency == "PerCutoff" ? a.Amount * 2m : a.Amount)
+                        });
+
+                foreach (var emp in employees)
+                {
+                    if (grouped.TryGetValue(emp.Id, out var summary))
+                    {
+                        emp.AllowanceCount = summary.AllowanceCount;
+                        emp.MonthlyAllowanceTotal = summary.MonthlyAllowanceTotal;
+                        emp.DeductionCount = summary.DeductionCount;
+                        emp.MonthlyDeductionTotal = summary.MonthlyDeductionTotal;
+                    }
+                }
+            }
+
+            cache.Set(cacheKey, employees, new MemoryCacheEntryOptions
+            {
+                SlidingExpiration = TimeSpan.FromMinutes(2),
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10)
+            });
 
             return Results.Ok(employees);
         });
@@ -151,6 +262,14 @@ public static class EmployeeSlices
                     e.BasicMonthlySalary,
                     e.DailyRate,
                     e.HourlyRate,
+                    AllowanceCount = db.EmployeeAllowances.Count(a => a.EmployeeId == e.Id && a.IsActive && a.Category != "Deduction"),
+                    MonthlyAllowanceTotal = db.EmployeeAllowances
+                        .Where(a => a.EmployeeId == e.Id && a.IsActive && a.Category != "Deduction")
+                        .Sum(a => (decimal?)(a.Frequency == "PerCutoff" ? a.Amount * 2m : a.Amount)) ?? 0m,
+                    DeductionCount = db.EmployeeAllowances.Count(a => a.EmployeeId == e.Id && a.IsActive && a.Category == "Deduction"),
+                    MonthlyDeductionTotal = db.EmployeeAllowances
+                        .Where(a => a.EmployeeId == e.Id && a.IsActive && a.Category == "Deduction")
+                        .Sum(a => (decimal?)(a.Frequency == "PerCutoff" ? a.Amount * 2m : a.Amount)) ?? 0m,
                     e.TinNumber,
                     e.SssNumber,
                     e.PhilHealthNumber,
@@ -167,7 +286,8 @@ public static class EmployeeSlices
         group.MapPost("/", async (
             SaveEmployeeRequest request,
             IValidator<SaveEmployeeRequest> validator,
-            AppDbContext db) =>
+            AppDbContext db,
+            IMemoryCache cache) =>
         {
             var validation = await validator.ValidateAsync(request);
             if (!validation.IsValid)
@@ -212,6 +332,7 @@ public static class EmployeeSlices
 
             db.Employees.Add(employee);
             await db.SaveChangesAsync();
+            EmployeeCacheHelper.Invalidate(cache);
 
             return Results.Created($"/api/employees/{employee.Id}", new { employee.Id, employee.EmployeeCode });
         }).RequireAuthorization(RbacPolicies.HrOrAdmin);
@@ -220,7 +341,8 @@ public static class EmployeeSlices
             Guid id,
             SaveEmployeeRequest request,
             IValidator<SaveEmployeeRequest> validator,
-            AppDbContext db) =>
+            AppDbContext db,
+            IMemoryCache cache) =>
         {
             var validation = await validator.ValidateAsync(request);
             if (!validation.IsValid)
@@ -265,11 +387,12 @@ public static class EmployeeSlices
             employee.IsActive = request.IsActive;
 
             await db.SaveChangesAsync();
+            EmployeeCacheHelper.Invalidate(cache);
             return Results.Ok(new { employee.Id, employee.EmployeeCode });
         }).RequireAuthorization(RbacPolicies.HrOrAdmin);
 
         // Bulk generate up to 1,000 realistic employees
-        group.MapPost("/seed-bulk", async (int? targetCount, AppDbContext db) =>
+        group.MapPost("/seed-bulk", async (int? targetCount, AppDbContext db, IMemoryCache cache) =>
         {
             var desiredTotal = targetCount ?? 1000;
             var existingCodes = (await db.Employees
@@ -384,11 +507,28 @@ public static class EmployeeSlices
                 await db.SaveChangesAsync();
             }
 
+            EmployeeCacheHelper.Invalidate(cache);
+
             var totalNow = await db.Employees.CountAsync();
             return Results.Ok(new
             {
                 AddedCount = toAdd.Count,
                 TotalEmployees = totalNow
+            });
+        }).RequireAuthorization(RbacPolicies.HrOrAdmin);
+
+        // Reset system to exactly 30 regular employees with attendance, leaves, OT, allowances, benefits & loans
+        group.MapPost("/reset-to-thirty-regular", async (AppDbContext db, IMemoryCache cache) =>
+        {
+            var result = await DatabaseSeeder.ResetToThirtyRegularEmployeesAsync(db);
+            EmployeeCacheHelper.Invalidate(cache);
+            return Results.Ok(new
+            {
+                message = "System successfully reset to 30 regular employees with complete timekeeping, leaves, OT, allowances, benefits and loans.",
+                employeesCount = result.EmployeesCount,
+                attendanceLogsCount = result.AttendanceCount,
+                overtimeRequestsCount = result.OvertimeCount,
+                allowancesCount = result.LeavesCount
             });
         }).RequireAuthorization(RbacPolicies.HrOrAdmin);
     }

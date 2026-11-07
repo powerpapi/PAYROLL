@@ -7,6 +7,7 @@ export interface AuthUser {
   role: string;
   employeeId?: string | null;
   employeeName?: string | null;
+  features?: string[];
   accessToken: string;
   refreshToken?: string;
 }

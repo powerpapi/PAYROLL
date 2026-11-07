@@ -18,7 +18,8 @@ public static class LoginSlice
         string Email,
         string Role,
         Guid? EmployeeId,
-        string? EmployeeName);
+        string? EmployeeName,
+        string[] Features);
     public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
     public class LoginValidator : AbstractValidator<LoginRequest>
@@ -72,6 +73,7 @@ public static class LoginSlice
             await db.SaveChangesAsync();
 
             var empName = user.Employee is not null ? $"{user.Employee.FirstName} {user.Employee.LastName}" : null;
+            var features = (await UserManagementSlice.GetEffectiveFeaturesForRoleAsync(db, user.Role)).ToArray();
 
             return Results.Ok(new LoginResponse(
                 user.Id,
@@ -80,7 +82,8 @@ public static class LoginSlice
                 user.Email,
                 user.Role,
                 user.EmployeeId,
-                empName));
+                empName,
+                features));
         });
 
         group.MapPost("/refresh", async (
@@ -108,6 +111,7 @@ public static class LoginSlice
             await db.SaveChangesAsync();
 
             var empName = user.Employee is not null ? $"{user.Employee.FirstName} {user.Employee.LastName}" : null;
+            var features = (await UserManagementSlice.GetEffectiveFeaturesForRoleAsync(db, user.Role)).ToArray();
 
             return Results.Ok(new LoginResponse(
                 user.Id,
@@ -116,7 +120,8 @@ public static class LoginSlice
                 user.Email,
                 user.Role,
                 user.EmployeeId,
-                empName));
+                empName,
+                features));
         });
 
         group.MapGet("/me", async (ClaimsPrincipal principal, AppDbContext db) =>
@@ -139,7 +144,20 @@ public static class LoginSlice
                 })
                 .FirstOrDefaultAsync();
 
-            return user is not null ? Results.Ok(user) : Results.NotFound();
+            if (user is null)
+                return Results.NotFound();
+
+            var features = (await UserManagementSlice.GetEffectiveFeaturesForRoleAsync(db, user.Role)).ToArray();
+
+            return Results.Ok(new
+            {
+                user.Id,
+                user.Email,
+                user.Role,
+                user.EmployeeId,
+                user.EmployeeName,
+                Features = features
+            });
         }).RequireAuthorization();
 
         group.MapPost("/change-password", async (

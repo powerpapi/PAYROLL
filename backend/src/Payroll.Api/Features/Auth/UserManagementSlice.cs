@@ -19,6 +19,34 @@ public static class UserManagementSlice
         bool IsActive,
         Guid? EmployeeId);
 
+    public record UpdateRolePermissionsRequest(List<string> EnabledFeatures);
+
+    public record RolePermissionSummary(
+        string Role,
+        string[] Features,
+        string[] DefaultFeatures,
+        bool IsCustomized,
+        int TotalEnabled,
+        int TotalAvailable);
+
+    public static async Task<List<string>> GetEffectiveFeaturesForRoleAsync(AppDbContext db, string role)
+    {
+        var rolePermissions = await db.RoleFeaturePermissions
+            .AsNoTracking()
+            .Where(p => p.Role == role)
+            .ToListAsync();
+
+        if (rolePermissions.Count == 0)
+        {
+            return AppFeatures.GetDefaultFeaturesForRole(role).ToList();
+        }
+
+        return rolePermissions
+            .Where(p => p.IsEnabled)
+            .Select(p => p.FeatureKey)
+            .ToList();
+    }
+
     public class CreateUserValidator : AbstractValidator<CreateUserRequest>
     {
         public CreateUserValidator()
@@ -126,6 +154,182 @@ public static class UserManagementSlice
 
             await db.SaveChangesAsync();
             return Results.Ok(new { user.Id, user.Email, user.Role, user.IsActive, user.EmployeeId });
+        }).RequireAuthorization(RbacPolicies.AdminOnly);
+
+        // ====================================================================
+        // ADVANCED RBAC: FEATURE DEFINITIONS & DYNAMIC ROLE PERMISSIONS
+        // ====================================================================
+
+        group.MapGet("/features", () =>
+        {
+            var features = AppFeatures.All.Select(f => new
+            {
+                f.Key,
+                f.Name,
+                f.Description,
+                f.Category,
+                f.DefaultRoles
+            });
+            return Results.Ok(features);
+        });
+
+        group.MapGet("/roles/permissions", async (AppDbContext db) =>
+        {
+            var allDbPermissions = await db.RoleFeaturePermissions
+                .AsNoTracking()
+                .ToListAsync();
+
+            var summaries = new List<RolePermissionSummary>();
+
+            foreach (var role in UserRoles.All)
+            {
+                var defaultFeatures = AppFeatures.GetDefaultFeaturesForRole(role);
+                var roleRows = allDbPermissions.Where(p => string.Equals(p.Role, role, StringComparison.OrdinalIgnoreCase)).ToList();
+
+                string[] effectiveFeatures;
+                bool isCustomized;
+
+                if (roleRows.Count == 0)
+                {
+                    effectiveFeatures = defaultFeatures;
+                    isCustomized = false;
+                }
+                else
+                {
+                    effectiveFeatures = roleRows.Where(p => p.IsEnabled).Select(p => p.FeatureKey).ToArray();
+                    var sortedEffective = effectiveFeatures.OrderBy(x => x).ToArray();
+                    var sortedDefault = defaultFeatures.OrderBy(x => x).ToArray();
+                    isCustomized = !sortedEffective.SequenceEqual(sortedDefault);
+                }
+
+                summaries.Add(new RolePermissionSummary(
+                    Role: role,
+                    Features: effectiveFeatures,
+                    DefaultFeatures: defaultFeatures,
+                    IsCustomized: isCustomized,
+                    TotalEnabled: effectiveFeatures.Length,
+                    TotalAvailable: AppFeatures.All.Length));
+            }
+
+            return Results.Ok(summaries);
+        });
+
+        group.MapGet("/roles/{role}/permissions", async (string role, AppDbContext db) =>
+        {
+            if (!UserRoles.All.Contains(role))
+                return Results.BadRequest(new { message = $"Invalid role '{role}'." });
+
+            var defaultFeatures = AppFeatures.GetDefaultFeaturesForRole(role);
+            var roleRows = await db.RoleFeaturePermissions
+                .AsNoTracking()
+                .Where(p => p.Role == role)
+                .ToListAsync();
+
+            string[] effectiveFeatures;
+            bool isCustomized;
+
+            if (roleRows.Count == 0)
+            {
+                effectiveFeatures = defaultFeatures;
+                isCustomized = false;
+            }
+            else
+            {
+                effectiveFeatures = roleRows.Where(p => p.IsEnabled).Select(p => p.FeatureKey).ToArray();
+                var sortedEffective = effectiveFeatures.OrderBy(x => x).ToArray();
+                var sortedDefault = defaultFeatures.OrderBy(x => x).ToArray();
+                isCustomized = !sortedEffective.SequenceEqual(sortedDefault);
+            }
+
+            return Results.Ok(new RolePermissionSummary(
+                Role: role,
+                Features: effectiveFeatures,
+                DefaultFeatures: defaultFeatures,
+                IsCustomized: isCustomized,
+                TotalEnabled: effectiveFeatures.Length,
+                TotalAvailable: AppFeatures.All.Length));
+        });
+
+        group.MapPut("/roles/{role}/permissions", async (
+            string role,
+            UpdateRolePermissionsRequest request,
+            AppDbContext db) =>
+        {
+            if (!UserRoles.All.Contains(role))
+                return Results.BadRequest(new { message = $"Invalid role '{role}'." });
+
+            var existing = await db.RoleFeaturePermissions
+                .Where(p => p.Role == role)
+                .ToListAsync();
+
+            if (existing.Count > 0)
+            {
+                db.RoleFeaturePermissions.RemoveRange(existing);
+            }
+
+            var enabledSet = request.EnabledFeatures.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var now = DateTime.UtcNow;
+
+            var newEntries = AppFeatures.All.Select(f => new RoleFeaturePermission
+            {
+                Role = role,
+                FeatureKey = f.Key,
+                IsEnabled = enabledSet.Contains(f.Key),
+                CreatedAtUtc = now
+            }).ToList();
+
+            db.RoleFeaturePermissions.AddRange(newEntries);
+            await db.SaveChangesAsync();
+
+            var defaultFeatures = AppFeatures.GetDefaultFeaturesForRole(role);
+            var effectiveFeatures = newEntries.Where(p => p.IsEnabled).Select(p => p.FeatureKey).ToArray();
+            var isCustomized = !effectiveFeatures.OrderBy(x => x).SequenceEqual(defaultFeatures.OrderBy(x => x));
+
+            return Results.Ok(new RolePermissionSummary(
+                Role: role,
+                Features: effectiveFeatures,
+                DefaultFeatures: defaultFeatures,
+                IsCustomized: isCustomized,
+                TotalEnabled: effectiveFeatures.Length,
+                TotalAvailable: AppFeatures.All.Length));
+        }).RequireAuthorization(RbacPolicies.AdminOnly);
+
+        group.MapPost("/roles/{role}/permissions/reset", async (string role, AppDbContext db) =>
+        {
+            if (!UserRoles.All.Contains(role))
+                return Results.BadRequest(new { message = $"Invalid role '{role}'." });
+
+            var existing = await db.RoleFeaturePermissions
+                .Where(p => p.Role == role)
+                .ToListAsync();
+
+            if (existing.Count > 0)
+            {
+                db.RoleFeaturePermissions.RemoveRange(existing);
+            }
+
+            var defaultFeatures = AppFeatures.GetDefaultFeaturesForRole(role);
+            var defaultSet = defaultFeatures.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var now = DateTime.UtcNow;
+
+            var newEntries = AppFeatures.All.Select(f => new RoleFeaturePermission
+            {
+                Role = role,
+                FeatureKey = f.Key,
+                IsEnabled = defaultSet.Contains(f.Key),
+                CreatedAtUtc = now
+            }).ToList();
+
+            db.RoleFeaturePermissions.AddRange(newEntries);
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new RolePermissionSummary(
+                Role: role,
+                Features: defaultFeatures,
+                DefaultFeatures: defaultFeatures,
+                IsCustomized: false,
+                TotalEnabled: defaultFeatures.Length,
+                TotalAvailable: AppFeatures.All.Length));
         }).RequireAuthorization(RbacPolicies.AdminOnly);
     }
 }

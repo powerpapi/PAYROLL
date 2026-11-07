@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
+import { ColumnDef } from "@tanstack/react-table"
 import {
   CalendarCheck2Icon,
   CheckIcon,
@@ -17,6 +18,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
+import { DataTableColumnHeader } from "@/components/ui/data-table-column-header"
 import {
   Dialog,
   DialogContent,
@@ -34,14 +37,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import {
   Tabs,
   TabsContent,
@@ -309,6 +304,410 @@ export function TimekeepingPage({ canApprove }: { canApprove: boolean }) {
       (OT_MULTIPLIERS[otForm.overtimeType]?.rate ?? 1.25)
     : 0
 
+  // -------------------------------------------------------------
+  // Column Definitions for TanStack DataTables
+  // -------------------------------------------------------------
+  const attendanceColumns = useMemo<ColumnDef<AttendanceLog>[]>(
+    () => [
+      {
+        accessorKey: "workDate",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs font-medium">{row.getValue("workDate")}</span>
+        ),
+      },
+      {
+        id: "employee",
+        accessorFn: (row) => `${row.employeeName} ${row.employeeCode}`,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Employee" />,
+        cell: ({ row }) => (
+          <div>
+            <div className="font-medium text-foreground">{row.original.employeeName}</div>
+            <div className="text-xs text-muted-foreground">{row.original.employeeCode}</div>
+          </div>
+        ),
+      },
+      {
+        id: "clockInOut",
+        header: "Clock In / Out",
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">
+            {row.original.clockIn || "--:--"} → {row.original.clockOut || "--:--"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "status",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        cell: ({ row }) => {
+          const status = row.getValue("status") as string
+          return (
+            <Badge
+              variant={
+                status === "Present"
+                  ? "default"
+                  : status === "Absent"
+                  ? "destructive"
+                  : "secondary"
+              }
+              className={
+                status === "Present"
+                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px]"
+                  : status === "Absent"
+                  ? "text-[10px]"
+                  : "text-[10px]"
+              }
+            >
+              {status}
+            </Badge>
+          )
+        },
+      },
+      {
+        accessorKey: "hoursWorked",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Hours Worked" className="justify-end" />
+        ),
+        cell: ({ row }) => (
+          <div className="text-right font-medium tabular-nums font-mono">
+            {row.original.hoursWorked.toFixed(2)} hrs
+          </div>
+        ),
+      },
+      {
+        id: "lateUndertime",
+        header: () => <div className="text-right">Late / Undertime</div>,
+        cell: ({ row }) => {
+          const l = row.original
+          return (
+            <div className="text-right text-xs tabular-nums font-mono">
+              <div className={l.lateMinutes > 0 ? "text-destructive font-medium" : "text-muted-foreground"}>
+                Late: {l.lateMinutes}m
+              </div>
+              <div className={l.undertimeMinutes > 0 ? "text-amber-500 font-medium" : "text-muted-foreground"}>
+                UT: {l.undertimeMinutes}m
+              </div>
+            </div>
+          )
+        },
+      },
+      {
+        accessorKey: "remarks",
+        header: "Remarks",
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground">{row.original.remarks || "—"}</span>
+        ),
+      },
+    ],
+    []
+  )
+
+  const leaveRequestColumns = useMemo<ColumnDef<LeaveRequest>[]>(
+    () => [
+      {
+        id: "employee",
+        accessorFn: (row) => `${row.employeeName} ${row.employeeCode}`,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Employee" />,
+        cell: ({ row }) => (
+          <div>
+            <div className="font-medium text-foreground">{row.original.employeeName}</div>
+            <div className="text-xs text-muted-foreground">{row.original.employeeCode}</div>
+          </div>
+        ),
+      },
+      {
+        accessorKey: "leaveName",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Leave Type" />,
+        cell: ({ row }) => (
+          <div className="flex items-center gap-1.5">
+            <Badge variant="outline" className="font-mono text-[10px]">
+              {row.original.leaveCode}
+            </Badge>
+            <span className="text-xs">{row.original.leaveName}</span>
+          </div>
+        ),
+      },
+      {
+        id: "dates",
+        header: "Dates",
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">
+            {row.original.startDate} → {row.original.endDate}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "totalDays",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Days" className="justify-end" />
+        ),
+        cell: ({ row }) => (
+          <div className="text-right font-medium tabular-nums font-mono">
+            {row.original.totalDays}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "reason",
+        header: "Reason",
+        cell: ({ row }) => (
+          <span className="max-w-[200px] truncate text-xs text-muted-foreground block">
+            {row.original.reason}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "status",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        cell: ({ row }) => {
+          const status = row.original.status
+          return (
+            <Badge
+              variant={
+                status === "Approved"
+                  ? "default"
+                  : status === "Rejected"
+                  ? "destructive"
+                  : "secondary"
+              }
+              className={
+                status === "Approved"
+                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px]"
+                  : "text-[10px]"
+              }
+            >
+              {status}
+            </Badge>
+          )
+        },
+      },
+      ...(canApprove
+        ? [
+            {
+              id: "review",
+              header: () => <div className="text-right">Review</div>,
+              cell: ({ row }: { row: any }) => {
+                const lr = row.original as LeaveRequest
+                if (lr.status !== "Pending") {
+                  return <div className="text-right text-xs text-muted-foreground">Reviewed</div>
+                }
+                return (
+                  <div className="flex justify-end gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="default"
+                      className="h-7 px-2 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                      onClick={() => handleReviewLeave(lr.id, "Approved")}
+                    >
+                      <CheckIcon className="mr-1 size-3" />
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => handleReviewLeave(lr.id, "Rejected")}
+                    >
+                      <XIcon className="mr-1 size-3" />
+                      Reject
+                    </Button>
+                  </div>
+                )
+              },
+            },
+          ]
+        : []),
+    ],
+    [canApprove]
+  )
+
+  const leaveBalanceColumns = useMemo<ColumnDef<LeaveBalance>[]>(
+    () => [
+      {
+        id: "employee",
+        accessorFn: (row) => `${row.employeeName} ${row.employeeCode}`,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Employee" />,
+        cell: ({ row }) => (
+          <div className="font-medium text-foreground">
+            {row.original.employeeName}{" "}
+            <span className="text-xs text-muted-foreground font-normal">
+              ({row.original.employeeCode})
+            </span>
+          </div>
+        ),
+      },
+      {
+        accessorKey: "leaveName",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Leave Type" />,
+        cell: ({ row }) => (
+          <div className="flex items-center gap-1.5">
+            <Badge variant="outline" className="font-mono text-[10px]">
+              {row.original.leaveCode}
+            </Badge>
+            <span className="text-xs">{row.original.leaveName}</span>
+          </div>
+        ),
+      },
+      {
+        accessorKey: "entitledDays",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Entitled" className="justify-end" />
+        ),
+        cell: ({ row }) => (
+          <div className="text-right tabular-nums text-xs font-mono">{row.original.entitledDays}</div>
+        ),
+      },
+      {
+        accessorKey: "usedDays",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Used" className="justify-end" />
+        ),
+        cell: ({ row }) => (
+          <div className="text-right tabular-nums text-xs font-mono">{row.original.usedDays}</div>
+        ),
+      },
+      {
+        accessorKey: "remainingDays",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Remaining" className="justify-end" />
+        ),
+        cell: ({ row }) => (
+          <div className="text-right font-bold text-primary tabular-nums text-xs font-mono">
+            {row.original.remainingDays}
+          </div>
+        ),
+      },
+    ],
+    []
+  )
+
+  const overtimeColumns = useMemo<ColumnDef<OvertimeRequest>[]>(
+    () => [
+      {
+        accessorKey: "workDate",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs font-medium">{row.getValue("workDate")}</span>
+        ),
+      },
+      {
+        id: "employee",
+        accessorFn: (row) => `${row.employeeName}`,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Employee" />,
+        cell: ({ row }) => (
+          <div>
+            <div className="font-medium text-foreground">{row.original.employeeName}</div>
+            <div className="text-[11px] text-muted-foreground font-mono">
+              ₱{row.original.hourlyRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/hr
+            </div>
+          </div>
+        ),
+      },
+      {
+        accessorKey: "overtimeType",
+        header: "OT Type & Multiplier",
+        cell: ({ row }) => (
+          <Badge variant="outline" className="font-mono text-[10px]">
+            {row.original.overtimeType} ({row.original.multiplier.toFixed(2)}x)
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "hours",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Hours" className="justify-end" />
+        ),
+        cell: ({ row }) => (
+          <div className="text-right font-medium tabular-nums font-mono text-xs">
+            {row.original.hours.toFixed(2)} hrs
+          </div>
+        ),
+      },
+      {
+        accessorKey: "computedAmount",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Computed OT Pay" className="justify-end" />
+        ),
+        cell: ({ row }) => (
+          <div className="text-right font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums font-mono text-xs">
+            ₱{row.original.computedAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "reason",
+        header: "Reason",
+        cell: ({ row }) => (
+          <span className="max-w-[180px] truncate text-xs text-muted-foreground block">
+            {row.original.reason}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "status",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+        cell: ({ row }) => {
+          const status = row.original.status
+          return (
+            <Badge
+              variant={
+                status === "Approved"
+                  ? "default"
+                  : status === "Rejected"
+                  ? "destructive"
+                  : "secondary"
+              }
+              className={
+                status === "Approved"
+                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px]"
+                  : "text-[10px]"
+              }
+            >
+              {status}
+            </Badge>
+          )
+        },
+      },
+      ...(canApprove
+        ? [
+            {
+              id: "review",
+              header: () => <div className="text-right">Review</div>,
+              cell: ({ row }: { row: any }) => {
+                const ot = row.original as OvertimeRequest
+                if (ot.status !== "Pending") {
+                  return <div className="text-right text-xs text-muted-foreground">Reviewed</div>
+                }
+                return (
+                  <div className="flex justify-end gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="default"
+                      className="h-7 px-2 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                      onClick={() => handleReviewOvertime(ot.id, "Approved")}
+                    >
+                      <CheckIcon className="mr-1 size-3" />
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => handleReviewOvertime(ot.id, "Rejected")}
+                    >
+                      <XIcon className="mr-1 size-3" />
+                      Reject
+                    </Button>
+                  </div>
+                )
+              },
+            },
+          ]
+        : []),
+    ],
+    [canApprove]
+  )
+
   return (
     <div className="flex flex-col gap-6 p-4 lg:p-6">
       {error && (
@@ -361,80 +760,12 @@ export function TimekeepingPage({ canApprove }: { canApprove: boolean }) {
               </Button>
             </CardHeader>
             <CardContent>
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Employee</TableHead>
-                      <TableHead>Clock In / Out</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Hours Worked</TableHead>
-                      <TableHead className="text-right">Late / Undertime</TableHead>
-                      <TableHead>Remarks</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {loading ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                          Loading attendance logs...
-                        </TableCell>
-                      </TableRow>
-                    ) : attendance.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                          No attendance logs recorded yet.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      attendance.map((log) => (
-                        <TableRow key={log.id}>
-                          <TableCell className="font-mono text-xs font-medium">
-                            {log.workDate}
-                          </TableCell>
-                          <TableCell>
-                            <div className="font-medium">{log.employeeName}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {log.employeeCode}
-                            </div>
-                          </TableCell>
-                          <TableCell className="font-mono text-xs">
-                            {log.clockIn || "--:--"} → {log.clockOut || "--:--"}
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant={
-                                log.status === "Present"
-                                  ? "default"
-                                  : log.status === "Absent"
-                                  ? "destructive"
-                                  : "secondary"
-                              }
-                            >
-                              {log.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right font-medium tabular-nums">
-                            {log.hoursWorked.toFixed(2)} hrs
-                          </TableCell>
-                          <TableCell className="text-right text-xs tabular-nums">
-                            <div className={log.lateMinutes > 0 ? "text-destructive font-medium" : "text-muted-foreground"}>
-                              Late: {log.lateMinutes}m
-                            </div>
-                            <div className={log.undertimeMinutes > 0 ? "text-amber-500 font-medium" : "text-muted-foreground"}>
-                              UT: {log.undertimeMinutes}m
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {log.remarks || "—"}
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
+              <DataTable
+                columns={attendanceColumns}
+                data={attendance}
+                searchPlaceholder="Search attendance by employee name or code..."
+                isLoading={loading}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -477,97 +808,12 @@ export function TimekeepingPage({ canApprove }: { canApprove: boolean }) {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Employee</TableHead>
-                      <TableHead>Leave Type</TableHead>
-                      <TableHead>Dates</TableHead>
-                      <TableHead className="text-right">Days</TableHead>
-                      <TableHead>Reason</TableHead>
-                      <TableHead>Status</TableHead>
-                      {canApprove && <TableHead className="text-right">Review</TableHead>}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {leaveRequests.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                          No leave requests filed.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      leaveRequests.map((lr) => (
-                        <TableRow key={lr.id}>
-                          <TableCell>
-                            <div className="font-medium">{lr.employeeName}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {lr.employeeCode}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="mr-1.5 font-mono">
-                              {lr.leaveCode}
-                            </Badge>
-                            <span className="text-xs">{lr.leaveName}</span>
-                          </TableCell>
-                          <TableCell className="font-mono text-xs">
-                            {lr.startDate} → {lr.endDate}
-                          </TableCell>
-                          <TableCell className="text-right font-medium tabular-nums">
-                            {lr.totalDays}
-                          </TableCell>
-                          <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground">
-                            {lr.reason}
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant={
-                                lr.status === "Approved"
-                                  ? "default"
-                                  : lr.status === "Rejected"
-                                  ? "destructive"
-                                  : "secondary"
-                              }
-                            >
-                              {lr.status}
-                            </Badge>
-                          </TableCell>
-                          {canApprove && (
-                            <TableCell className="text-right">
-                              {lr.status === "Pending" ? (
-                                <div className="flex justify-end gap-1.5">
-                                  <Button
-                                    size="sm"
-                                    variant="default"
-                                    className="h-7 px-2.5 text-xs"
-                                    onClick={() => handleReviewLeave(lr.id, "Approved")}
-                                  >
-                                    <CheckIcon className="mr-1 size-3" />
-                                    Approve
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="destructive"
-                                    className="h-7 px-2.5 text-xs"
-                                    onClick={() => handleReviewLeave(lr.id, "Rejected")}
-                                  >
-                                    <XIcon className="mr-1 size-3" />
-                                    Reject
-                                  </Button>
-                                </div>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">Reviewed</span>
-                              )}
-                            </TableCell>
-                          )}
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
+              <DataTable
+                columns={leaveRequestColumns}
+                data={leaveRequests}
+                searchPlaceholder="Search leave requests..."
+                isLoading={loading}
+              />
             </CardContent>
           </Card>
 
@@ -579,46 +825,12 @@ export function TimekeepingPage({ canApprove }: { canApprove: boolean }) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Employee</TableHead>
-                      <TableHead>Leave Type</TableHead>
-                      <TableHead className="text-right">Entitled</TableHead>
-                      <TableHead className="text-right">Used</TableHead>
-                      <TableHead className="text-right">Remaining</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {leaveBalances.map((lb) => (
-                      <TableRow key={lb.id}>
-                        <TableCell className="font-medium">
-                          {lb.employeeName}{" "}
-                          <span className="text-xs text-muted-foreground">
-                            ({lb.employeeCode})
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="mr-1.5 font-mono">
-                            {lb.leaveCode}
-                          </Badge>
-                          {lb.leaveName}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {lb.entitledDays}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {lb.usedDays}
-                        </TableCell>
-                        <TableCell className="text-right font-bold text-primary tabular-nums">
-                          {lb.remainingDays}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              <DataTable
+                columns={leaveBalanceColumns}
+                data={leaveBalances}
+                searchPlaceholder="Search leave balances..."
+                isLoading={loading}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -649,100 +861,12 @@ export function TimekeepingPage({ canApprove }: { canApprove: boolean }) {
               </Button>
             </CardHeader>
             <CardContent>
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Employee</TableHead>
-                      <TableHead>OT Type & Multiplier</TableHead>
-                      <TableHead className="text-right">Hours</TableHead>
-                      <TableHead className="text-right">Computed OT Pay</TableHead>
-                      <TableHead>Reason</TableHead>
-                      <TableHead>Status</TableHead>
-                      {canApprove && <TableHead className="text-right">Review</TableHead>}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {overtimeRequests.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
-                          No overtime requests filed.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      overtimeRequests.map((ot) => (
-                        <TableRow key={ot.id}>
-                          <TableCell className="font-mono text-xs font-medium">
-                            {ot.workDate}
-                          </TableCell>
-                          <TableCell>
-                            <div className="font-medium">{ot.employeeName}</div>
-                            <div className="text-xs text-muted-foreground">
-                              ₱{ot.hourlyRate.toFixed(2)}/hr
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="font-mono">
-                              {ot.overtimeType} ({ot.multiplier.toFixed(2)}x)
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right font-medium tabular-nums">
-                            {ot.hours.toFixed(2)} hrs
-                          </TableCell>
-                          <TableCell className="text-right font-semibold text-primary tabular-nums">
-                            ₱{ot.computedAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                          </TableCell>
-                          <TableCell className="max-w-[180px] truncate text-xs text-muted-foreground">
-                            {ot.reason}
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant={
-                                ot.status === "Approved"
-                                  ? "default"
-                                  : ot.status === "Rejected"
-                                  ? "destructive"
-                                  : "secondary"
-                              }
-                            >
-                              {ot.status}
-                            </Badge>
-                          </TableCell>
-                          {canApprove && (
-                            <TableCell className="text-right">
-                              {ot.status === "Pending" ? (
-                                <div className="flex justify-end gap-1.5">
-                                  <Button
-                                    size="sm"
-                                    variant="default"
-                                    className="h-7 px-2.5 text-xs"
-                                    onClick={() => handleReviewOvertime(ot.id, "Approved")}
-                                  >
-                                    <CheckIcon className="mr-1 size-3" />
-                                    Approve
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="destructive"
-                                    className="h-7 px-2.5 text-xs"
-                                    onClick={() => handleReviewOvertime(ot.id, "Rejected")}
-                                  >
-                                    <XIcon className="mr-1 size-3" />
-                                    Reject
-                                  </Button>
-                                </div>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">Reviewed</span>
-                              )}
-                            </TableCell>
-                          )}
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
+              <DataTable
+                columns={overtimeColumns}
+                data={overtimeRequests}
+                searchPlaceholder="Search overtime requests..."
+                isLoading={loading}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -963,7 +1087,7 @@ export function TimekeepingPage({ canApprove }: { canApprove: boolean }) {
                 <SelectContent>
                   {employees.map((e) => (
                     <SelectItem key={e.id} value={e.id}>
-                      {e.employeeCode} — {e.lastName}, {e.firstName} (₱{e.hourlyRate.toFixed(2)}/hr)
+                      {e.employeeCode} — {e.lastName}, {e.firstName} (₱{e.hourlyRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/hr)
                     </SelectItem>
                   ))}
                 </SelectContent>

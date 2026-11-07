@@ -56,7 +56,7 @@ public static class PayrollEngineSlice
                     p.FinalizedAtUtc,
                     EmployeeCount = p.Items.Count,
                     TotalGrossPay = p.Items.Sum(i => (decimal?)i.GrossPay) ?? 0m,
-                    TotalDeductions = p.Items.Sum(i => (decimal?)(i.TotalEmployeeContributions + i.WithholdingTax)) ?? 0m,
+                    TotalDeductions = p.Items.Sum(i => (decimal?)(i.AbsenceDeduction + i.LateUndertimeDeduction + i.TotalEmployeeContributions + i.WithholdingTax + i.OtherDeductions)) ?? 0m,
                     TotalNetPay = p.Items.Sum(i => (decimal?)i.NetPay) ?? 0m
                 })
                 .ToListAsync();
@@ -141,11 +141,13 @@ public static class PayrollEngineSlice
                             i.TotalEmployerContributions,
                             i.TaxableIncome,
                             i.WithholdingTax,
+                            i.OtherDeductions,
                             i.NetPay,
-                            Lines = i.Lines.OrderBy(l => l.LineType).ThenBy(l => l.Code).Select(l => new
+                            Lines = i.Lines.OrderByDescending(l => l.LineType == "Earning").ThenBy(l => l.GroupName).ThenBy(l => l.Code).Select(l => new
                             {
                                 l.Id,
                                 l.LineType,
+                                l.GroupName,
                                 l.Code,
                                 l.Description,
                                 l.Amount,
@@ -172,6 +174,9 @@ public static class PayrollEngineSlice
 
             if (period.Status == "Finalized")
                 return Results.BadRequest(new { message = "Finalized payroll periods are locked and cannot be recomputed." });
+
+            if (period.Status == "Approved")
+                return Results.BadRequest(new { message = "Approved payroll periods cannot be recomputed. Please reject or revert the review first." });
 
             var divisor = period.PayFrequency switch
             {
@@ -234,11 +239,12 @@ public static class PayrollEngineSlice
             {
                 var lines = new List<PayrollItemLine>();
 
-                // A. Basic Pay for the cutoff
+                // A. Basic Pay for the cutoff (EARNINGS GROUP: Basic Pay)
                 var basicPay = Math.Round(emp.BasicMonthlySalary / divisor, 2);
                 lines.Add(new PayrollItemLine
                 {
                     LineType = "Earning",
+                    GroupName = "Basic Pay",
                     Code = "BASIC",
                     Description = $"Basic Salary ({period.PayFrequency})",
                     Amount = basicPay
@@ -259,7 +265,8 @@ public static class PayrollEngineSlice
                 {
                     lines.Add(new PayrollItemLine
                     {
-                        LineType = "AttendanceDeduction",
+                        LineType = "Deduction",
+                        GroupName = "Attendance Deduction",
                         Code = "ABSENCE",
                         Description = $"Absences / LWOP ({totalAbsentDays} day(s))",
                         Amount = -absenceDeduction
@@ -273,7 +280,8 @@ public static class PayrollEngineSlice
                 {
                     lines.Add(new PayrollItemLine
                     {
-                        LineType = "AttendanceDeduction",
+                        LineType = "Deduction",
+                        GroupName = "Attendance Deduction",
                         Code = "LATE_UT",
                         Description = $"Late & Undertime ({lateUtMins} mins)",
                         Amount = -lateUtDeduction
@@ -288,6 +296,7 @@ public static class PayrollEngineSlice
                     lines.Add(new PayrollItemLine
                     {
                         LineType = "Earning",
+                        GroupName = "Overtime & Holiday",
                         Code = "HOLIDAY",
                         Description = $"Worked Holiday Pay Premium ({workedHolidayDays} day(s))",
                         Amount = holidayPay
@@ -303,35 +312,68 @@ public static class PayrollEngineSlice
                     lines.Add(new PayrollItemLine
                     {
                         LineType = "Earning",
+                        GroupName = "Overtime & Holiday",
                         Code = "OVERTIME",
                         Description = $"Approved Overtime ({otHours:0.##} hrs)",
                         Amount = otPay
                     });
                 }
 
-                // D. Taxable & Non-Taxable (De Minimis) Allowances
-                var empAllowances = allowances.Where(a => a.EmployeeId == emp.Id).ToList();
+                // D. Dynamic Per-Employee Earnings (Allowances, Bonuses, Incentives) & Deductions (Loans, Cash Advance, HMO)
+                var empComponents = allowances.Where(a => a.EmployeeId == emp.Id).ToList();
                 decimal taxableAllowanceTotal = 0m;
                 decimal nonTaxableAllowanceTotal = 0m;
+                decimal otherDeductionTotal = 0m;
 
-                foreach (var alw in empAllowances)
+                foreach (var comp in empComponents)
                 {
-                    var cutoffAmount = alw.Frequency == "Monthly"
-                        ? Math.Round(alw.Amount / divisor, 2)
-                        : Math.Round(alw.Amount, 2);
+                    var cutoffAmount = comp.Frequency == "Monthly"
+                        ? Math.Round(comp.Amount / divisor, 2)
+                        : Math.Round(comp.Amount, 2);
 
-                    if (alw.IsTaxable)
-                        taxableAllowanceTotal += cutoffAmount;
-                    else
-                        nonTaxableAllowanceTotal += cutoffAmount;
-
-                    lines.Add(new PayrollItemLine
+                    if (comp.Category == "Deduction")
                     {
-                        LineType = "Earning",
-                        Code = alw.IsTaxable ? "ALW_TAX" : "ALW_DEMINIMIS",
-                        Description = $"{alw.Name} ({(alw.IsTaxable ? "Taxable" : "De Minimis")})",
-                        Amount = cutoffAmount
-                    });
+                        otherDeductionTotal += cutoffAmount;
+                        var dedGroup = string.IsNullOrWhiteSpace(comp.GroupName)
+                            ? "Other Deduction"
+                            : comp.GroupName;
+                        var dedCode = !string.IsNullOrWhiteSpace(comp.Code)
+                            ? $"DED_{comp.Code}"
+                            : "DED_OTHER";
+
+                        lines.Add(new PayrollItemLine
+                        {
+                            LineType = "Deduction",
+                            GroupName = dedGroup,
+                            Code = dedCode,
+                            Description = comp.Name,
+                            Amount = -cutoffAmount
+                        });
+                    }
+                    else
+                    {
+                        if (comp.IsTaxable)
+                            taxableAllowanceTotal += cutoffAmount;
+                        else
+                            nonTaxableAllowanceTotal += cutoffAmount;
+
+                        var earnGroup = string.IsNullOrWhiteSpace(comp.GroupName)
+                            ? "Allowance"
+                            : comp.GroupName;
+                        var prefix = earnGroup.Contains("Bonus", StringComparison.OrdinalIgnoreCase) ? "EARN" : "ALW";
+                        var lineCode = !string.IsNullOrWhiteSpace(comp.Code)
+                            ? $"{prefix}_{comp.Code}"
+                            : (comp.IsTaxable ? "ALW_TAX" : "ALW_DEMINIMIS");
+
+                        lines.Add(new PayrollItemLine
+                        {
+                            LineType = "Earning",
+                            GroupName = earnGroup,
+                            Code = lineCode,
+                            Description = $"{comp.Name} ({(comp.IsTaxable ? "Taxable" : "De Minimis")})",
+                            Amount = cutoffAmount
+                        });
+                    }
                 }
 
                 // E. Gross Pay
@@ -364,7 +406,8 @@ public static class PayrollEngineSlice
 
                     lines.Add(new PayrollItemLine
                     {
-                        LineType = "Contribution",
+                        LineType = "Deduction",
+                        GroupName = "Government Contribution",
                         Code = cType.Code,
                         Description = $"{cType.Name} Employee Share",
                         Amount = -eeShare,
@@ -385,15 +428,16 @@ public static class PayrollEngineSlice
                 {
                     lines.Add(new PayrollItemLine
                     {
-                        LineType = "Tax",
+                        LineType = "Deduction",
+                        GroupName = "Withholding Tax",
                         Code = "WTAX",
                         Description = $"Withholding Tax ({matchedBracketName})",
                         Amount = -withholdingTax
                     });
                 }
 
-                // H. Final Net Pay
-                var netPay = Math.Max(0m, grossPay - totalEeContrib - withholdingTax);
+                // H. Final Net Pay (Gross Pay less Statutory Contributions, Withholding Tax & Dynamic Deductions)
+                var netPay = Math.Max(0m, grossPay - totalEeContrib - withholdingTax - otherDeductionTotal);
 
                 newItems.Add(new PayrollItem
                 {
@@ -415,14 +459,27 @@ public static class PayrollEngineSlice
                     TotalEmployerContributions = totalErContrib,
                     TaxableIncome = taxableIncome,
                     WithholdingTax = withholdingTax,
+                    OtherDeductions = otherDeductionTotal,
                     NetPay = netPay,
                     Lines = lines
                 });
             }
 
             db.PayrollItems.AddRange(newItems);
+            var prevStatus = period.Status;
             period.Status = "Computed";
             period.ComputedAtUtc = DateTime.UtcNow;
+            period.RejectionRemarks = null;
+
+            db.PayrollApprovalLogs.Add(new PayrollApprovalLog
+            {
+                PayrollPeriodId = period.Id,
+                Action = "Compute",
+                FromStatus = prevStatus,
+                ToStatus = "Computed",
+                UserRole = "System/PayrollEngine",
+                Remarks = $"Payroll engine computed {newItems.Count} employees. Total Gross: ₱{newItems.Sum(i => i.GrossPay):N2}, Net: ₱{newItems.Sum(i => i.NetPay):N2}"
+            });
 
             await db.SaveChangesAsync();
 

@@ -37,12 +37,23 @@ export type NavKey =
   | "timekeeping"
   | "payroll"
   | "contributions"
+  | "approvals"
+  | "reports"
+  | "loans-benefits"
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   user: AuthUser
   activeNav: NavKey
   onSelectNav: (key: NavKey) => void
   onLogout: () => void
+}
+
+const DEFAULT_ROLE_FEATURES: Record<string, string[]> = {
+  Admin: ["dashboard", "employees", "departments", "users", "timekeeping", "payroll", "contributions", "approvals", "reports", "loans-benefits"],
+  HR: ["dashboard", "employees", "departments", "users", "timekeeping", "reports", "loans-benefits"],
+  PayrollOfficer: ["dashboard", "employees", "payroll", "contributions", "approvals", "reports", "loans-benefits"],
+  Manager: ["dashboard", "employees", "timekeeping", "approvals", "reports"],
+  Employee: ["dashboard", "reports"],
 }
 
 export function AppSidebar({
@@ -52,9 +63,12 @@ export function AppSidebar({
   onLogout,
   ...props
 }: AppSidebarProps) {
-  const canEditHr = user.role === "Admin" || user.role === "HR"
+  const allowedFeatures =
+    user.features && user.features.length > 0
+      ? user.features
+      : DEFAULT_ROLE_FEATURES[user.role] || ["dashboard"]
 
-  const mainNav = [
+  const allNavItems = [
     {
       id: "dashboard",
       title: "Dashboard",
@@ -72,16 +86,12 @@ export function AppSidebar({
       icon: Building2Icon,
       badge: "Phase 1",
     },
-    ...(canEditHr
-      ? [
-          {
-            id: "users",
-            title: "Users & RBAC",
-            icon: ShieldCheckIcon,
-            badge: "Phase 1",
-          },
-        ]
-      : []),
+    {
+      id: "users",
+      title: "Users & RBAC",
+      icon: ShieldCheckIcon,
+      badge: "Phase 1",
+    },
     {
       id: "timekeeping",
       title: "Attendance, Leave & OT",
@@ -100,13 +110,33 @@ export function AppSidebar({
       icon: LandmarkIcon,
       badge: "Phase 4",
     },
+    {
+      id: "approvals",
+      title: "Approvals & Lock",
+      icon: CheckCircle2Icon,
+      badge: "Phase 5",
+    },
+    {
+      id: "reports",
+      title: "Payslips & Reports",
+      icon: FileSpreadsheetIcon,
+      badge: "Phase 6",
+    },
+    {
+      id: "loans-benefits",
+      title: "Loans & Benefits",
+      icon: HandCoinsIcon,
+      badge: "Phase 7",
+    },
   ]
 
-  const upcomingPhases = [
-    { title: "Approvals & Lock", icon: CheckCircle2Icon, phase: "Phase 5" },
-    { title: "Payslips & Reports", icon: FileSpreadsheetIcon, phase: "Phase 6" },
-    { title: "Loans & 13th-Month", icon: HandCoinsIcon, phase: "Phase 7" },
-  ]
+  const mainNav = allNavItems.filter((item) =>
+    user.role === "Admin" || allowedFeatures.includes(item.id)
+  )
+
+  const canEditHr = allowedFeatures.includes("employees") || user.role === "Admin" || user.role === "HR"
+
+  const upcomingPhases: { title: string; icon: any; phase: string }[] = []
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>

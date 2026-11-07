@@ -8,11 +8,20 @@ using Payroll.Api.Data;
 using Payroll.Api.Data.Seed;
 using Payroll.Api.Features.Auth;
 using Payroll.Api.Features.Employees;
+using Payroll.Api.Features.LoansAndBenefits;
+using Payroll.Api.Features.PayrollApproval;
 using Payroll.Api.Features.PayrollEngine;
+using Payroll.Api.Features.Reports;
 using Payroll.Api.Features.StatutoryAndTax;
 using Payroll.Api.Features.Timekeeping;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Configure Logging: disable Windows EventLog provider to prevent access denied exceptions when non-admin
+builder.Logging.ClearProviders();
+builder.Logging.AddConfiguration(builder.Configuration.GetSection("Logging"));
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
 
 // 1. Database (PostgreSQL + EF Core)
 builder.Services.AddDbContext<AppDbContext>(options =>
@@ -53,7 +62,37 @@ builder.Services.AddCors(options =>
               .AllowAnyMethod());
 });
 
+// 5. In-Memory Caching & HTTP Response Compression
+builder.Services.AddMemoryCache();
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+});
+
 var app = builder.Build();
+
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "application/problem+json";
+        var exceptionFeature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerPathFeature>();
+        var ex = exceptionFeature?.Error;
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "Unhandled exception on {Path}: {Message}", context.Request.Path, ex?.Message);
+
+        await context.Response.WriteAsJsonAsync(new
+        {
+            type = "https://tools.ietf.org/html/rfc7231#section-6.6.1",
+            title = "An unhandled error occurred.",
+            status = 500,
+            detail = app.Environment.IsDevelopment() ? ex?.ToString() : ex?.Message
+        });
+    });
+});
+
+app.UseResponseCompression();
 
 if (app.Environment.IsDevelopment())
 {
@@ -89,6 +128,15 @@ app.MapPayrollEngineEndpoints();
 
 // Map Phase 4 Vertical Slice Endpoints
 app.MapContributionEndpoints();
+
+// Map Phase 5 Vertical Slice Endpoints
+app.MapPayrollApprovalEndpoints();
+
+// Map Phase 6 Vertical Slice Endpoints
+app.MapReportsAndPayslipsEndpoints();
+
+// Map Phase 7 Vertical Slice Endpoints
+app.MapLoansAndBenefitsEndpoints();
 
 // Auto-EnsureCreated & Seed on Startup in Development if DB is reachable
 if (app.Environment.IsDevelopment())

@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
+import { ColumnDef } from "@tanstack/react-table"
 import { PlusIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -10,16 +11,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { DataTable } from "@/components/ui/data-table"
+import { DataTableColumnHeader } from "@/components/ui/data-table-column-header"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { Department } from "@/features/employees/EmployeesPage"
 import { apiFetch } from "@/lib/api"
 
@@ -61,6 +56,37 @@ export function DepartmentsPage({ canEdit }: { canEdit: boolean }) {
       setError(err.message)
     }
   }
+
+  const columns = useMemo<ColumnDef<Department>[]>(
+    () => [
+      {
+        accessorKey: "code",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Code" />,
+        cell: ({ row }) => (
+          <Badge variant="outline" className="font-mono text-xs">
+            {row.getValue("code")}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "name",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Department Name" />,
+        cell: ({ row }) => <span className="font-medium text-foreground">{row.getValue("name")}</span>,
+      },
+      {
+        accessorKey: "employeeCount",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Active Employees" className="justify-end" />
+        ),
+        cell: ({ row }) => (
+          <div className="text-right tabular-nums font-semibold text-primary">
+            {row.original.employeeCount ?? 0}
+          </div>
+        ),
+      },
+    ],
+    []
+  )
 
   return (
     <div className="flex flex-col gap-6 p-4 lg:p-6">
@@ -106,7 +132,7 @@ export function DepartmentsPage({ canEdit }: { canEdit: boolean }) {
         <CardHeader>
           <CardTitle>Organizational Departments</CardTitle>
           <CardDescription>
-            Active departments and enrolled headcount.
+            Active departments and enrolled headcount in TanStack Data Table.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -116,40 +142,13 @@ export function DepartmentsPage({ canEdit }: { canEdit: boolean }) {
             </div>
           )}
 
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Code</TableHead>
-                  <TableHead>Department Name</TableHead>
-                  <TableHead className="text-right">Active Employees</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={3} className="h-24 text-center text-muted-foreground">
-                      Loading departments...
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  departments.map((d) => (
-                    <TableRow key={d.id}>
-                      <TableCell>
-                        <Badge variant="outline" className="font-mono">
-                          {d.code}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="font-medium">{d.name}</TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {d.employeeCount ?? 0}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+          <DataTable
+            columns={columns}
+            data={departments}
+            searchPlaceholder="Filter departments by code or name..."
+            isLoading={loading}
+            emptyMessage="No departments registered."
+          />
         </CardContent>
       </Card>
     </div>

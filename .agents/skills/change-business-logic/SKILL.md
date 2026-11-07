@@ -1,3 +1,8 @@
+---
+name: change-business-logic
+description: Framework for safely refactoring, updating, or implementing business rules and domain logic within an application codebase. Use when asked to change business rules, update calculations/validations, or modify domain models.
+---
+
 # Skill Specification: Change Business Logic
 
 ## Overview

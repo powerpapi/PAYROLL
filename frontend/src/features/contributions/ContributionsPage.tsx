@@ -570,13 +570,13 @@ export function ContributionsPage() {
                         {c.formulaSummary}
                       </TableCell>
                       <TableCell className="text-right font-medium tabular-nums">
-                        ₱{c.employeeShare.toFixed(2)}
+                        ₱{c.employeeShare.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        ₱{c.employerShare.toFixed(2)}
+                        ₱{c.employerShare.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        ₱{c.employerEcShare.toFixed(2)}
+                        ₱{c.employerEcShare.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -593,7 +593,7 @@ export function ContributionsPage() {
                       {preview.appliedTaxFormula} (Taxable: ₱{preview.monthlyTaxableIncome.toLocaleString(undefined, { minimumFractionDigits: 2 })})
                     </TableCell>
                     <TableCell className="text-right font-medium text-amber-500 tabular-nums">
-                      ₱{preview.estimatedMonthlyTax.toFixed(2)}
+                      ₱{preview.estimatedMonthlyTax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground">—</TableCell>
                     <TableCell className="text-right text-muted-foreground">—</TableCell>
@@ -608,7 +608,7 @@ export function ContributionsPage() {
                       ₱{preview.estimatedMonthlyNetPay.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </TableCell>
                     <TableCell colSpan={2} className="text-right font-bold tabular-nums">
-                      Total ER: ₱{preview.totalEmployerShare.toFixed(2)}
+                      Total ER: ₱{preview.totalEmployerShare.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </TableCell>
                   </TableRow>
                 </TableFooter>
@@ -857,11 +857,11 @@ export function ContributionsPage() {
                     <div className="text-xs font-medium">
                       Result → EE:{" "}
                       <span className="font-bold text-primary">
-                        ₱{formulaTestResult.employeeShare.toFixed(2)}
+                        ₱{formulaTestResult.employeeShare.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>{" "}
                       | ER:{" "}
                       <span className="font-bold">
-                        ₱{formulaTestResult.employerShare.toFixed(2)}
+                        ₱{formulaTestResult.employerShare.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     </div>
                   )}

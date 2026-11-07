@@ -7,6 +7,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 {
     // Phase 1
     public DbSet<User> Users => Set<User>();
+    public DbSet<RoleFeaturePermission> RoleFeaturePermissions => Set<RoleFeaturePermission>();
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<Employee> Employees => Set<Employee>();
 
@@ -18,6 +19,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<OvertimeRequest> OvertimeRequests => Set<OvertimeRequest>();
 
     // Phase 3
+    public DbSet<AllowanceType> AllowanceTypes => Set<AllowanceType>();
     public DbSet<EmployeeAllowance> EmployeeAllowances => Set<EmployeeAllowance>();
     public DbSet<PayrollPeriod> PayrollPeriods => Set<PayrollPeriod>();
     public DbSet<PayrollItem> PayrollItems => Set<PayrollItem>();
@@ -28,6 +30,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ContributionSchedule> ContributionSchedules => Set<ContributionSchedule>();
     public DbSet<ContributionBracket> ContributionBrackets => Set<ContributionBracket>();
     public DbSet<TaxBracket> TaxBrackets => Set<TaxBracket>();
+
+    // Phase 5: Approvals & Audit Trail
+    public DbSet<PayrollApprovalLog> PayrollApprovalLogs => Set<PayrollApprovalLog>();
+
+    // Phase 7: Loans, Benefits & 13th-Month Pay
+    public DbSet<EmployeeLoan> EmployeeLoans => Set<EmployeeLoan>();
+    public DbSet<LoanPayment> LoanPayments => Set<LoanPayment>();
+    public DbSet<CompanyBenefit> CompanyBenefits => Set<CompanyBenefit>();
+    public DbSet<EmployeeBenefitEnrollment> EmployeeBenefitEnrollments => Set<EmployeeBenefitEnrollment>();
+    public DbSet<ThirteenthMonthRecord> ThirteenthMonthRecords => Set<ThirteenthMonthRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -56,6 +68,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
              .OnDelete(DeleteBehavior.SetNull);
         });
 
+        modelBuilder.Entity<RoleFeaturePermission>(b =>
+        {
+            b.Property(p => p.Role).HasMaxLength(64);
+            b.Property(p => p.FeatureKey).HasMaxLength(64);
+            b.HasIndex(p => new { p.Role, p.FeatureKey }).IsUnique();
+        });
+
         modelBuilder.Entity<Department>(b =>
         {
             b.HasIndex(d => d.Code).IsUnique();
@@ -67,6 +86,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             b.HasIndex(e => e.EmployeeCode).IsUnique();
             b.HasIndex(e => e.Email).IsUnique();
+            b.HasIndex(e => new { e.LastName, e.FirstName });
+            b.HasIndex(e => e.DepartmentId);
+            b.HasIndex(e => e.EmploymentStatus);
             b.Property(e => e.EmployeeCode).HasMaxLength(32);
             b.Property(e => e.FirstName).HasMaxLength(100);
             b.Property(e => e.LastName).HasMaxLength(100);
@@ -127,14 +149,28 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         });
 
         // Phase 3 Configurations
+        modelBuilder.Entity<AllowanceType>(b =>
+        {
+            b.HasIndex(at => at.Code).IsUnique();
+            b.Property(at => at.Code).HasMaxLength(32);
+            b.Property(at => at.Name).HasMaxLength(128);
+            b.Property(at => at.DefaultFrequency).HasMaxLength(32);
+        });
+
         modelBuilder.Entity<EmployeeAllowance>(b =>
         {
+            b.HasIndex(ea => new { ea.EmployeeId, ea.IsActive });
+            b.Property(ea => ea.Code).HasMaxLength(32);
             b.Property(ea => ea.Name).HasMaxLength(128);
             b.Property(ea => ea.Frequency).HasMaxLength(32);
             b.HasOne(ea => ea.Employee)
              .WithMany()
              .HasForeignKey(ea => ea.EmployeeId)
              .OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(ea => ea.AllowanceType)
+             .WithMany()
+             .HasForeignKey(ea => ea.AllowanceTypeId)
+             .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<PayrollPeriod>(b =>
@@ -144,6 +180,24 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             b.Property(p => p.Name).HasMaxLength(128);
             b.Property(p => p.PayFrequency).HasMaxLength(32);
             b.Property(p => p.Status).HasMaxLength(32);
+            b.Property(p => p.SubmittedByEmail).HasMaxLength(256);
+            b.Property(p => p.ReviewStartedByEmail).HasMaxLength(256);
+            b.Property(p => p.ApprovedByEmail).HasMaxLength(256);
+            b.Property(p => p.FinalizedByEmail).HasMaxLength(256);
+            b.HasMany(p => p.ApprovalLogs)
+             .WithOne(al => al.PayrollPeriod)
+             .HasForeignKey(al => al.PayrollPeriodId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PayrollApprovalLog>(b =>
+        {
+            b.Property(al => al.Action).HasMaxLength(64);
+            b.Property(al => al.FromStatus).HasMaxLength(32);
+            b.Property(al => al.ToStatus).HasMaxLength(32);
+            b.Property(al => al.UserEmail).HasMaxLength(256);
+            b.Property(al => al.UserRole).HasMaxLength(64);
+            b.HasIndex(al => al.PayrollPeriodId);
         });
 
         modelBuilder.Entity<PayrollItem>(b =>
@@ -191,6 +245,53 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             b.HasOne(br => br.ContributionSchedule)
              .WithMany(s => s.Brackets)
              .HasForeignKey(br => br.ContributionScheduleId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Phase 7 Configurations
+        modelBuilder.Entity<EmployeeLoan>(b =>
+        {
+            b.Property(l => l.LoanType).HasMaxLength(64);
+            b.Property(l => l.ReferenceNumber).HasMaxLength(64);
+            b.Property(l => l.Status).HasMaxLength(32);
+            b.HasOne(l => l.Employee)
+             .WithMany()
+             .HasForeignKey(l => l.EmployeeId)
+             .OnDelete(DeleteBehavior.Cascade);
+            b.HasMany(l => l.Payments)
+             .WithOne(p => p.EmployeeLoan)
+             .HasForeignKey(p => p.EmployeeLoanId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CompanyBenefit>(b =>
+        {
+            b.HasIndex(cb => cb.Code).IsUnique();
+            b.Property(cb => cb.Code).HasMaxLength(32);
+            b.Property(cb => cb.Name).HasMaxLength(128);
+            b.Property(cb => cb.Category).HasMaxLength(64);
+            b.HasMany(cb => cb.Enrollments)
+             .WithOne(e => e.CompanyBenefit)
+             .HasForeignKey(e => e.CompanyBenefitId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<EmployeeBenefitEnrollment>(b =>
+        {
+            b.Property(e => e.Status).HasMaxLength(32);
+            b.HasOne(e => e.Employee)
+             .WithMany()
+             .HasForeignKey(e => e.EmployeeId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ThirteenthMonthRecord>(b =>
+        {
+            b.HasIndex(r => new { r.EmployeeId, r.Year }).IsUnique();
+            b.Property(r => r.Status).HasMaxLength(32);
+            b.HasOne(r => r.Employee)
+             .WithMany()
+             .HasForeignKey(r => r.EmployeeId)
              .OnDelete(DeleteBehavior.Cascade);
         });
     }
